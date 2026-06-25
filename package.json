@@ -1,0 +1,65 @@
+{
+	"name": "query-visualizer",
+	"private": true,
+	"type": "module",
+	"imports": {
+		"#/*": "./src/*"
+	},
+	"scripts": {
+		"dev": "vite dev --port 3000",
+		"generate-routes": "tsr generate",
+		"build": "vite build",
+		"preview": "pnpm run build && vite preview",
+		"test": "vitest run",
+		"format": "biome format",
+		"lint": "biome lint",
+		"check": "biome check",
+		"deploy": "pnpm run build && wrangler deploy",
+		"cf-typegen": "wrangler types"
+	},
+	"dependencies": {
+		"@cloudflare/vite-plugin": "^1.26.0",
+		"@monaco-editor/react": "^4.7.0",
+		"@tailwindcss/vite": "^4.1.18",
+		"@tanstack/react-devtools": "latest",
+		"@tanstack/react-router": "latest",
+		"@tanstack/react-router-devtools": "latest",
+		"@tanstack/react-router-ssr-query": "latest",
+		"@tanstack/react-start": "latest",
+		"@tanstack/router-plugin": "^1.132.0",
+		"@xyflow/react": "^12.11.0",
+		"dagre": "^0.8.5",
+		"lucide-react": "^0.545.0",
+		"node-sql-parser": "5.4.0",
+		"pgsql-ast-parser": "^12.0.2",
+		"react": "^19.2.0",
+		"react-dom": "^19.2.0",
+		"tailwindcss": "^4.1.18"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "2.4.5",
+		"@playwright/test": "^1.61.0",
+		"@tailwindcss/typography": "^0.5.16",
+		"@tanstack/devtools-vite": "latest",
+		"@tanstack/router-cli": "^1.132.0",
+		"@testing-library/dom": "^10.4.1",
+		"@testing-library/react": "^16.3.0",
+		"@types/dagre": "^0.7.54",
+		"@types/node": "^22.10.2",
+		"@types/react": "^19.2.0",
+		"@types/react-dom": "^19.2.0",
+		"@vitejs/plugin-react": "^6.0.1",
+		"jsdom": "^28.1.0",
+		"monaco-editor": "^0.55.1",
+		"typescript": "^6.0.2",
+		"vite": "^8.0.0",
+		"vitest": "^4.1.5",
+		"wrangler": "^4.103.0"
+	},
+	"pnpm": {
+		"onlyBuiltDependencies": [
+			"esbuild",
+			"lightningcss"
+		]
+	}
+}

@@ -1,0 +1,710 @@
+import Editor, { type OnMount } from "@monaco-editor/react";
+import {
+	applyEdgeChanges,
+	applyNodeChanges,
+	Background,
+	BackgroundVariant,
+	Controls,
+	type Edge,
+	type Node,
+	type OnEdgesChange,
+	type OnNodesChange,
+	ReactFlow,
+	ReactFlowProvider,
+	useReactFlow,
+} from "@xyflow/react";
+import "@xyflow/react/dist/style.css";
+import { CircleHelp, Database, GitBranch, PanelsTopLeft } from "lucide-react";
+import type * as MonacoNS from "monaco-editor";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AboutModal } from "#/components/AboutModal";
+import { NodeDetailsPanel } from "#/components/NodeDetailsPanel";
+import { RecursiveEdge } from "#/components/RecursiveEdge";
+import { SqlNode } from "#/components/SqlNode";
+import {
+	DDL_STORAGE_KEY,
+	DEFAULT_SQL,
+	DIALECT_STORAGE_KEY,
+	DIALECTS,
+	type Dialect,
+	isDialect,
+} from "#/lib/dialect";
+import { NodeActionsContext } from "#/lib/node-actions";
+import { parseSql } from "#/lib/parse";
+import type { SourceSpan } from "#/lib/pipeline";
+import { parseSchema } from "#/lib/schema/parse-schema";
+
+const nodeTypes = { sql: SqlNode };
+const edgeTypes = { recursive: RecursiveEdge };
+
+const DEBOUNCE_MS = 280;
+const CLOSE_MS = 200;
+
+function readStoredDialect(): Dialect {
+	if (typeof window === "undefined") return "postgres";
+	const stored = window.localStorage.getItem(DIALECT_STORAGE_KEY);
+	return isDialect(stored) ? stored : "postgres";
+}
+
+function readStoredDdl(): Record<Dialect, string> {
+	const empty: Record<Dialect, string> = { postgres: "", mysql: "" };
+	if (typeof window === "undefined") return empty;
+	try {
+		const raw = window.localStorage.getItem(DDL_STORAGE_KEY);
+		if (!raw) return empty;
+		const parsed = JSON.parse(raw) as Partial<Record<Dialect, string>>;
+		return {
+			postgres: parsed.postgres ?? "",
+			mysql: parsed.mysql ?? "",
+		};
+	} catch {
+		return empty;
+	}
+}
+
+function nodeAtOffset(nodes: Node[], offset: number): Node | null {
+	let best: Node | null = null;
+	let bestSize = Number.POSITIVE_INFINITY;
+	for (const n of nodes) {
+		const loc = n.data?.loc as SourceSpan | undefined;
+		if (!loc) continue;
+		if (offset >= loc.start && offset <= loc.end) {
+			const size = loc.end - loc.start;
+			if (size < bestSize) {
+				best = n;
+				bestSize = size;
+			}
+		}
+	}
+	return best;
+}
+
+function GraphStage() {
+	const [nodes, setNodes] = useState<Node[]>([]);
+	const [edges, setEdges] = useState<Edge[]>([]);
+	const [parseError, setParseError] = useState<string | null>(null);
+	const [activeId, setActiveId] = useState<string | null>(null);
+	const [detailNode, setDetailNode] = useState<Node | null>(null);
+	const [panelClosing, setPanelClosing] = useState(false);
+	const [aboutOpen, setAboutOpen] = useState(false);
+	const [aboutClosing, setAboutClosing] = useState(false);
+	const [mobilePane, setMobilePane] = useState<"editor" | "diagram">("editor");
+	const [dialect, setDialect] = useState<Dialect>(readStoredDialect);
+	const [autoFitVersion, setAutoFitVersion] = useState(0);
+	const [sqlByDialect, setSqlByDialect] = useState<Record<Dialect, string>>(
+		() => ({ ...DEFAULT_SQL }),
+	);
+	const [sqlText, setSqlText] = useState(
+		() => DEFAULT_SQL[readStoredDialect()],
+	);
+	const [ddlByDialect, setDdlByDialect] = useState<Record<Dialect, string>>(
+		() => readStoredDdl(),
+	);
+	const [ddlText, setDdlText] = useState(
+		() => readStoredDdl()[readStoredDialect()],
+	);
+	const [schemaOpen, setSchemaOpen] = useState(false);
+	const [schemaError, setSchemaError] = useState<string | null>(null);
+	const [schemaSummary, setSchemaSummary] = useState<string | null>(null);
+
+	const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const editorRef = useRef<MonacoNS.editor.IStandaloneCodeEditor | null>(null);
+	const monacoRef = useRef<typeof MonacoNS | null>(null);
+	const decorationsRef =
+		useRef<MonacoNS.editor.IEditorDecorationsCollection | null>(null);
+	const nodesRef = useRef<Node[]>([]);
+	const suppressProgrammaticChangeRef = useRef(false);
+	const suppressCursorRef = useRef(false);
+
+	const { fitView } = useReactFlow();
+
+	useEffect(() => {
+		nodesRef.current = nodes;
+	}, [nodes]);
+
+	const tieRange = useCallback((loc: SourceSpan) => {
+		const editor = editorRef.current;
+		const monaco = monacoRef.current;
+		if (!editor || !monaco) return;
+		const model = editor.getModel();
+		if (!model) return;
+		const start = model.getPositionAt(loc.start);
+		const end = model.getPositionAt(loc.end);
+		decorationsRef.current?.set([
+			{
+				range: new monaco.Range(
+					start.lineNumber,
+					start.column,
+					end.lineNumber,
+					end.column,
+				),
+				options: { className: "qg-source-tie", isWholeLine: false },
+			},
+		]);
+	}, []);
+
+	const clearTie = useCallback(() => {
+		setActiveId(null);
+		decorationsRef.current?.set([]);
+	}, []);
+
+	const runParse = useCallback(
+		(raw: string, forDialect: Dialect, ddl: string) => {
+			clearTie();
+			let schema: ReturnType<typeof parseSchema>["schema"] | undefined;
+			if (ddl.trim()) {
+				const parsed = parseSchema(ddl, forDialect);
+				if (parsed.error) {
+					setSchemaError(parsed.error);
+					setSchemaSummary(null);
+				} else {
+					setSchemaError(null);
+					schema = parsed.schema;
+					const tableCount = parsed.schema.tables.size;
+					let indexCount = 0;
+					for (const t of parsed.schema.tables.values()) {
+						indexCount += t.indexes.length;
+					}
+					setSchemaSummary(
+						tableCount
+							? `${tableCount} table${tableCount > 1 ? "s" : ""}, ${indexCount} index${indexCount === 1 ? "" : "es"}`
+							: null,
+					);
+				}
+			} else {
+				setSchemaError(null);
+				setSchemaSummary(null);
+			}
+			const result = parseSql(raw, forDialect, schema);
+			if (result.error) {
+				setParseError(result.error);
+				return;
+			}
+			setNodes(result.nodes);
+			setEdges(result.edges);
+			setParseError(null);
+			setAutoFitVersion((version) => version + 1);
+		},
+		[clearTie],
+	);
+
+	// Parse the initial default query once on mount. Later parses run via
+	// handleChange (typing) and switchDialect (dialect switch).
+	// biome-ignore lint/correctness/useExhaustiveDependencies: mount-only initial parse
+	useEffect(() => {
+		runParse(sqlText, dialect, ddlText);
+	}, []);
+
+	useEffect(() => {
+		if (nodes.length === 0 || autoFitVersion === 0) return;
+
+		let timeout: ReturnType<typeof setTimeout> | null = null;
+		const frame = requestAnimationFrame(() => {
+			timeout = setTimeout(() => {
+				fitView({ padding: 0.22, duration: 220 });
+			}, 40);
+		});
+
+		return () => {
+			cancelAnimationFrame(frame);
+			if (timeout) clearTimeout(timeout);
+		};
+	}, [autoFitVersion, nodes.length, fitView]);
+
+	useEffect(() => {
+		if (mobilePane === "diagram") {
+			const t = setTimeout(() => fitView({ padding: 0.22, duration: 220 }), 60);
+			return () => clearTimeout(t);
+		}
+	}, [mobilePane, fitView]);
+
+	const handleChange = useCallback(
+		(value: string | undefined) => {
+			const next = value ?? "";
+			if (suppressProgrammaticChangeRef.current) return;
+			setSqlText(next);
+			setSqlByDialect((prev) =>
+				prev[dialect] === next ? prev : { ...prev, [dialect]: next },
+			);
+			if (debounceRef.current) clearTimeout(debounceRef.current);
+			debounceRef.current = setTimeout(
+				() => runParse(next, dialect, ddlText),
+				DEBOUNCE_MS,
+			);
+		},
+		[runParse, dialect, ddlText],
+	);
+
+	const switchDialect = useCallback(
+		(next: Dialect) => {
+			if (next === dialect) return;
+			if (debounceRef.current) clearTimeout(debounceRef.current);
+			const currentSql = editorRef.current?.getValue() ?? sqlText;
+			const nextSql = sqlByDialect[next] ?? DEFAULT_SQL[next];
+			setSqlByDialect((prev) => ({
+				...prev,
+				[dialect]: currentSql,
+			}));
+			setDialect(next);
+			if (typeof window !== "undefined") {
+				window.localStorage.setItem(DIALECT_STORAGE_KEY, next);
+			}
+			setSqlText(nextSql);
+			// Push the selected dialect's latest draft into the editor
+			// imperatively. The Editor
+			// component is uncontrolled (defaultValue), so React state changes
+			// alone won't update its contents — and that's intentional: making
+			// it controlled causes Monaco to drop rapid keystrokes (including
+			// space) because the wrapper calls model.setValue() on every prop
+			// change.
+			const ed = editorRef.current;
+			if (ed && ed.getValue() !== nextSql) {
+				suppressProgrammaticChangeRef.current = true;
+				try {
+					ed.setValue(nextSql);
+				} finally {
+					suppressProgrammaticChangeRef.current = false;
+				}
+			}
+			// `editor.setValue` fires Monaco's content-change event synchronously,
+			// which calls `handleChange` and schedules a debounced parse using the
+			// PREVIOUS dialect captured in its closure. Cancel that stale parse
+			// before kicking off the correct one, otherwise it fires ~280ms later
+			// and overwrites the good result with a wrong-dialect error (e.g.
+			// MySQL default backticks parsed as Postgres).
+			if (debounceRef.current) clearTimeout(debounceRef.current);
+			const nextDdl = ddlByDialect[next] ?? "";
+			setDdlByDialect((prev) => ({ ...prev, [dialect]: ddlText }));
+			setDdlText(nextDdl);
+			runParse(nextSql, next, nextDdl);
+		},
+		[dialect, runParse, sqlByDialect, sqlText, ddlByDialect, ddlText],
+	);
+
+	const handleDdlChange = useCallback(
+		(value: string) => {
+			setDdlText(value);
+			setDdlByDialect((prev) =>
+				prev[dialect] === value ? prev : { ...prev, [dialect]: value },
+			);
+			if (typeof window !== "undefined") {
+				window.localStorage.setItem(
+					DDL_STORAGE_KEY,
+					JSON.stringify({ ...ddlByDialect, [dialect]: value }),
+				);
+			}
+			if (debounceRef.current) clearTimeout(debounceRef.current);
+			debounceRef.current = setTimeout(() => {
+				const currentSql = editorRef.current?.getValue() ?? sqlText;
+				runParse(currentSql, dialect, value);
+			}, DEBOUNCE_MS);
+		},
+		[dialect, ddlByDialect, runParse, sqlText],
+	);
+
+	const revealLoc = useCallback((loc: SourceSpan) => {
+		const editor = editorRef.current;
+		const monaco = monacoRef.current;
+		if (!editor || !monaco) return;
+		const model = editor.getModel();
+		if (!model) return;
+		const start = model.getPositionAt(loc.start);
+		const end = model.getPositionAt(loc.end);
+		editor.revealRangeInCenter(
+			new monaco.Range(
+				start.lineNumber,
+				start.column,
+				end.lineNumber,
+				end.column,
+			),
+		);
+	}, []);
+
+	const handleMount: OnMount = useCallback(
+		(editor, monaco) => {
+			editorRef.current = editor;
+			monacoRef.current = monaco;
+			decorationsRef.current = editor.createDecorationsCollection([]);
+
+			monaco.editor.defineTheme("querygraph", {
+				base: "vs",
+				inherit: true,
+				rules: [
+					{ token: "", foreground: "1a1814" },
+					{ token: "keyword.sql", foreground: "b8542a", fontStyle: "bold" },
+					{ token: "operator.sql", foreground: "7a3d63" },
+					{ token: "string.sql", foreground: "5a6e2c" },
+					{ token: "number.sql", foreground: "b8893a" },
+					{ token: "comment.sql", foreground: "a39a8a", fontStyle: "italic" },
+					{ token: "identifier.sql", foreground: "1f6b6b" },
+					{ token: "delimiter.sql", foreground: "6b6357" },
+				],
+				colors: {
+					"editor.background": "#f7f3ec",
+					"editor.foreground": "#1a1814",
+					"editorLineNumber.foreground": "#a39a8a",
+					"editorLineNumber.activeForeground": "#3a342a",
+					"editor.lineHighlightBackground": "#efe9dd80",
+					"editor.selectionBackground": "#b8542a33",
+					"editorCursor.foreground": "#b8542a",
+					"editorGutter.background": "#f7f3ec",
+				},
+			});
+			monaco.editor.setTheme("querygraph");
+
+			// Monaco routes typing through a hidden <textarea>. macOS system
+			// features (autocorrect, smart quotes/dashes, "double-space inserts
+			// period") and browser spellcheck read these attributes from the
+			// textarea and can mangle plain typing — e.g. swallowing spaces or
+			// replacing two spaces with ". ". Disable every substitution on
+			// the hidden input, and re-apply each time Monaco re-renders the
+			// textarea (the element can be recreated on layout changes).
+			const disableSmartTextOn = (
+				root: HTMLElement | null | undefined,
+			): void => {
+				const ta = root?.querySelector("textarea");
+				if (!ta) return;
+				ta.setAttribute("autocorrect", "off");
+				ta.setAttribute("autocapitalize", "off");
+				ta.setAttribute("autocomplete", "off");
+				ta.setAttribute("spellcheck", "false");
+				ta.setAttribute("data-gramm", "false");
+				ta.setAttribute("data-gramm_editor", "false");
+				ta.setAttribute("data-enable-grammarly", "false");
+			};
+			const dom = editor.getDomNode();
+			disableSmartTextOn(dom);
+			if (dom) {
+				const observer = new MutationObserver(() => disableSmartTextOn(dom));
+				observer.observe(dom, { childList: true, subtree: true });
+				editor.onDidDispose(() => observer.disconnect());
+			}
+
+			editor.onDidChangeCursorPosition((e) => {
+				if (suppressCursorRef.current) return;
+				if (e.reason !== 3) return;
+				const model = editor.getModel();
+				if (!model) return;
+				const offset = model.getOffsetAt(e.position);
+				const match = nodeAtOffset(nodesRef.current, offset);
+				if (match) {
+					setActiveId(match.id);
+					const loc = match.data?.loc as SourceSpan | undefined;
+					if (loc) tieRange(loc);
+				} else {
+					clearTie();
+				}
+			});
+		},
+		[tieRange, clearTie],
+	);
+
+	const focusNode = useCallback(
+		(node: Node) => {
+			setActiveId(node.id);
+			const loc = node.data?.loc as SourceSpan | undefined;
+			if (loc) {
+				suppressCursorRef.current = true;
+				tieRange(loc);
+				revealLoc(loc);
+				requestAnimationFrame(() => {
+					suppressCursorRef.current = false;
+				});
+			}
+		},
+		[tieRange, revealLoc],
+	);
+
+	const handleNodeClick = useCallback(
+		(_: React.MouseEvent, node: Node) => focusNode(node),
+		[focusNode],
+	);
+
+	const openDetails = useCallback(
+		(nodeId: string) => {
+			const node = nodesRef.current.find((n) => n.id === nodeId);
+			if (!node) return;
+			setPanelClosing(false);
+			setDetailNode(node);
+			focusNode(node);
+		},
+		[focusNode],
+	);
+
+	const closePanel = useCallback(() => {
+		if (!detailNode || panelClosing) return;
+		setPanelClosing(true);
+		setTimeout(() => {
+			setDetailNode(null);
+			setPanelClosing(false);
+		}, CLOSE_MS);
+	}, [detailNode, panelClosing]);
+
+	const closeAbout = useCallback(() => {
+		setAboutClosing(true);
+		setTimeout(() => {
+			setAboutOpen(false);
+			setAboutClosing(false);
+		}, CLOSE_MS);
+	}, []);
+
+	const onNodesChange: OnNodesChange = useCallback(
+		(changes) => setNodes((nds) => applyNodeChanges(changes, nds)),
+		[],
+	);
+	const onEdgesChange: OnEdgesChange = useCallback(
+		(changes) => setEdges((eds) => applyEdgeChanges(changes, eds)),
+		[],
+	);
+
+	const decoratedNodes = useMemo(() => {
+		return nodes.map((n) =>
+			n.id === activeId ? { ...n, selected: true } : { ...n, selected: false },
+		);
+	}, [nodes, activeId]);
+
+	const nodeActions = useMemo(() => ({ openDetails }), [openDetails]);
+
+	return (
+		<NodeActionsContext.Provider value={nodeActions}>
+			<div className="flex h-dvh w-full flex-col bg-paper">
+				<header className="flex shrink-0 items-center gap-3 border-b border-rule px-4 py-2.5">
+					<div className="flex items-center gap-2.5">
+						<span
+							className="flex h-7 w-7 items-center justify-center rounded-sm text-paper"
+							style={{ background: "var(--color-accent)" }}
+						>
+							<GitBranch size={16} strokeWidth={2.5} />
+						</span>
+						<div className="leading-none">
+							<h1 className="font-display text-[1.05rem] font-semibold tracking-tight text-ink">
+								QueryGraph
+							</h1>
+							<p className="mt-0.5 font-mono text-[0.625rem] tracking-wide text-ink-4 uppercase">
+								Read SQL like a flowchart
+							</p>
+						</div>
+					</div>
+					<div className="ml-auto flex items-center gap-1">
+						<button
+							type="button"
+							onClick={() => {
+								setAboutClosing(false);
+								setAboutOpen(true);
+							}}
+							className="flex h-9 items-center gap-1.5 rounded px-3 font-mono text-[0.75rem] text-ink-2 transition hover:bg-paper-2 hover:text-ink"
+						>
+							<CircleHelp size={15} />
+							About
+						</button>
+					</div>
+				</header>
+
+				<div className="relative flex min-h-0 flex-1">
+					<section
+						data-active={mobilePane === "editor"}
+						className="flex w-full min-w-0 flex-col border-r border-rule data-[active=false]:hidden md:flex md:w-[38%] md:max-w-[34rem] md:data-[active=false]:flex"
+					>
+						<div className="flex items-center justify-between border-b border-rule px-4 py-2">
+							<div className="flex items-center gap-0.5 rounded-sm border border-rule bg-paper-2 p-0.5">
+								{DIALECTS.map((d) => (
+									<button
+										key={d.id}
+										type="button"
+										onClick={() => switchDialect(d.id)}
+										data-on={dialect === d.id}
+										className="rounded-[3px] px-2.5 py-1 font-mono text-[0.625rem] tracking-widest uppercase transition data-[on=false]:text-ink-4 data-[on=false]:hover:text-ink-2 data-[on=true]:bg-paper data-[on=true]:text-accent data-[on=true]:shadow-sm"
+									>
+										{d.label}
+									</button>
+								))}
+							</div>
+							<button
+								type="button"
+								onClick={() => setSchemaOpen((v) => !v)}
+								data-on={schemaOpen}
+								className="flex items-center gap-1.5 rounded-sm border border-rule px-2 py-1 font-mono text-[0.625rem] tracking-wide uppercase transition data-[on=false]:text-ink-4 data-[on=false]:hover:text-ink-2 data-[on=true]:border-teal data-[on=true]:text-teal-2"
+								title="Add CREATE TABLE / INDEX DDL to see index-aware access paths"
+							>
+								<Database size={12} />
+								Schema
+								{schemaSummary ? (
+									<span className="ml-0.5 rounded-sm bg-paper-3 px-1 text-teal-2">
+										{schemaSummary}
+									</span>
+								) : null}
+							</button>
+						</div>
+						{schemaOpen && (
+							<div className="flex min-h-[7rem] flex-col border-b border-rule bg-paper-2">
+								<div className="flex items-center justify-between px-4 py-1.5">
+									<span className="font-mono text-[0.625rem] tracking-wide text-ink-4 uppercase">
+										Schema DDL — optional
+									</span>
+									<span className="font-mono text-[0.5625rem] text-ink-4">
+										CREATE TABLE / INDEX → index-aware paths
+									</span>
+								</div>
+								{schemaError && (
+									<div
+										className="border-y px-4 py-1.5 font-mono text-[0.6875rem] leading-snug"
+										style={{
+											color: "var(--color-accent-2)",
+											background:
+												"color-mix(in srgb, var(--color-accent) 10%, transparent)",
+										}}
+									>
+										{schemaError}
+									</div>
+								)}
+								<textarea
+									value={ddlText}
+									onChange={(e) => handleDdlChange(e.target.value)}
+									aria-label="Schema DDL"
+									spellCheck={false}
+									autoCorrect="off"
+									autoCapitalize="off"
+									placeholder={
+										"CREATE TABLE users (\n  id int PRIMARY KEY,\n  email varchar(255) UNIQUE\n);\nCREATE INDEX idx_org ON users (org_id);"
+									}
+									className="min-h-[7rem] w-full flex-1 resize-y bg-paper px-4 py-2 font-mono text-[0.75rem] leading-relaxed text-ink outline-none placeholder:text-ink-4"
+								/>
+							</div>
+						)}
+						{parseError && (
+							<div
+								className="border-b px-4 py-2 font-mono text-[0.75rem] leading-snug"
+								style={{
+									color: "var(--color-accent-2)",
+									background:
+										"color-mix(in srgb, var(--color-accent) 12%, transparent)",
+									borderColor:
+										"color-mix(in srgb, var(--color-accent) 30%, transparent)",
+									animation: "qg-fade-in 0.2s ease",
+								}}
+							>
+								{parseError}
+							</div>
+						)}
+						<div className="min-h-0 flex-1">
+							<Editor
+								height="100%"
+								defaultLanguage="sql"
+								defaultValue={sqlText}
+								onChange={handleChange}
+								onMount={handleMount}
+								options={{
+									fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+									fontSize: 13,
+									lineHeight: 21,
+									minimap: { enabled: false },
+									scrollBeyondLastLine: false,
+									padding: { top: 16, bottom: 16 },
+									renderLineHighlight: "line",
+									smoothScrolling: true,
+									tabSize: 2,
+									wordWrap: "on",
+									overviewRulerLanes: 0,
+									scrollbar: { verticalScrollbarSize: 10 },
+									// Disable suggestion popup behaviors that swallow / hijack
+									// space and other plain typing keys. The built-in SQL
+									// snippets (e.g. keyword expansions) were intercepting
+									// space presses and producing accidental insertions like
+									// `do.` when users were trying to type a space.
+									quickSuggestions: false,
+									suggestOnTriggerCharacters: false,
+									acceptSuggestionOnEnter: "off",
+									acceptSuggestionOnCommitCharacter: false,
+									tabCompletion: "off",
+									wordBasedSuggestions: "off",
+									snippetSuggestions: "none",
+									parameterHints: { enabled: false },
+									autoClosingBrackets: "never",
+									autoClosingQuotes: "never",
+									autoSurround: "never",
+									autoIndent: "none",
+									formatOnType: false,
+									formatOnPaste: false,
+								}}
+							/>
+						</div>
+					</section>
+
+					<section
+						data-active={mobilePane === "diagram"}
+						className="relative min-w-0 flex-1 data-[active=false]:hidden md:block md:data-[active=false]:block"
+					>
+						<ReactFlow
+							nodes={decoratedNodes}
+							edges={edges}
+							nodeTypes={nodeTypes}
+							edgeTypes={edgeTypes}
+							onNodesChange={onNodesChange}
+							onEdgesChange={onEdgesChange}
+							onNodeClick={handleNodeClick}
+							onPaneClick={clearTie}
+							proOptions={{ hideAttribution: false }}
+							fitView
+							minZoom={0.2}
+							maxZoom={1.6}
+							nodesConnectable={false}
+							nodesDraggable
+							panActivationKeyCode={null}
+						>
+							<Background
+								variant={BackgroundVariant.Cross}
+								gap={28}
+								size={5}
+								color="var(--color-rule)"
+							/>
+							<Controls showInteractive={false} position="bottom-right" />
+						</ReactFlow>
+
+						{detailNode && (
+							<div className="absolute top-0 right-0 z-30 h-full w-full max-w-[22rem]">
+								<NodeDetailsPanel
+									node={detailNode}
+									rawSql={sqlText}
+									dialect={dialect}
+									closing={panelClosing}
+									onClose={closePanel}
+								/>
+							</div>
+						)}
+					</section>
+
+					<nav className="absolute right-0 bottom-0 left-0 z-40 flex border-t border-rule bg-paper md:hidden">
+						<button
+							type="button"
+							onClick={() => setMobilePane("editor")}
+							data-on={mobilePane === "editor"}
+							className="flex flex-1 items-center justify-center gap-2 py-3 font-mono text-[0.6875rem] tracking-widest uppercase data-[on=false]:text-ink-4 data-[on=true]:text-accent"
+						>
+							<PanelsTopLeft size={15} />
+							SQL
+						</button>
+						<button
+							type="button"
+							onClick={() => setMobilePane("diagram")}
+							data-on={mobilePane === "diagram"}
+							className="flex flex-1 items-center justify-center gap-2 py-3 font-mono text-[0.6875rem] tracking-widest uppercase data-[on=false]:text-ink-4 data-[on=true]:text-accent"
+						>
+							<GitBranch size={15} />
+							Diagram
+						</button>
+					</nav>
+				</div>
+			</div>
+
+			{aboutOpen && <AboutModal closing={aboutClosing} onClose={closeAbout} />}
+		</NodeActionsContext.Provider>
+	);
+}
+
+export function QueryGraphApp() {
+	return (
+		<ReactFlowProvider>
+			<GraphStage />
+		</ReactFlowProvider>
+	);
+}

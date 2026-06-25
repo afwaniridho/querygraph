@@ -1,0 +1,204 @@
+@import "tailwindcss";
+
+@theme {
+	--color-paper: #f7f3ec;
+	--color-paper-2: #efe9dd;
+	--color-paper-3: #e6dfcf;
+	--color-ink: #1a1814;
+	--color-ink-2: #3a342a;
+	--color-ink-3: #6b6357;
+	--color-ink-4: #a39a8a;
+	--color-rule: #d6cdb8;
+	--color-rule-soft: #e6dfcf;
+
+	--color-accent: #b8542a;
+	--color-accent-2: #8c3f1f;
+	--color-teal: #1f6b6b;
+	--color-teal-2: #114848;
+	--color-ochre: #b8893a;
+	--color-plum: #7a3d63;
+	--color-moss: #5a6e2c;
+	--color-slate: #4a5878;
+
+	--color-node-source: #5a6e2c;
+	--color-node-filter: #b8893a;
+	--color-node-shape: #4a5878;
+	--color-node-join: #1f6b6b;
+	--color-node-sort: #7a3d63;
+	--color-node-write: #b8542a;
+	--color-node-meta: #8c6f4a;
+
+	--font-display: "Fraunces", "Times New Roman", Georgia, serif;
+	--font-sans: "Fraunces", "Times New Roman", Georgia, serif;
+	--font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+* {
+	box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+	min-height: 100%;
+}
+
+html,
+body {
+	margin: 0;
+	padding: 0;
+	background: var(--color-paper);
+	color: var(--color-ink);
+	font-family: var(--font-sans);
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+	text-rendering: optimizeLegibility;
+	font-feature-settings: "ss01", "ss03";
+}
+
+::selection {
+	background: var(--color-accent);
+	color: var(--color-paper);
+}
+
+::-webkit-scrollbar {
+	width: 10px;
+	height: 10px;
+}
+
+::-webkit-scrollbar-track {
+	background: var(--color-paper);
+}
+
+::-webkit-scrollbar-thumb {
+	background: var(--color-rule);
+	border: 2px solid var(--color-paper);
+	border-radius: 6px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+	background: var(--color-ink-4);
+}
+
+.qg-source-tie {
+	background: color-mix(in srgb, var(--color-accent) 18%, transparent);
+	border-bottom: 2px dashed var(--color-accent);
+}
+
+.react-flow {
+	--xy-background-color: var(--color-paper);
+	--xy-background-pattern-color: var(--color-rule-soft);
+
+	--xy-edge-stroke-default: var(--color-ink-3);
+	--xy-edge-stroke-width-default: 1.5;
+	--xy-edge-stroke-selected: var(--color-accent);
+
+	--xy-controls-button-background-color: var(--color-paper);
+	--xy-controls-button-background-color-hover: var(--color-paper-2);
+	--xy-controls-button-color: var(--color-ink-2);
+	--xy-controls-button-color-hover: var(--color-ink);
+	--xy-controls-button-border-color: var(--color-rule);
+
+	--xy-attribution-background-color: transparent;
+}
+
+.react-flow__panel {
+	margin: 1rem !important;
+	font-family: var(--font-mono) !important;
+}
+
+.react-flow__attribution {
+	font-family: var(--font-mono);
+	font-size: 0.6875rem;
+	color: var(--color-ink-4);
+	background: transparent;
+}
+
+.react-flow__attribution a {
+	color: var(--color-ink-3);
+}
+
+.react-flow__controls {
+	border: 1px solid var(--color-rule);
+	border-radius: 4px;
+	overflow: hidden;
+	box-shadow: 0 4px 12px rgba(26, 24, 20, 0.06);
+}
+
+.react-flow__controls-button {
+	width: 2.25rem !important;
+	height: 2.25rem !important;
+	border-bottom: 1px solid var(--color-rule) !important;
+}
+
+.react-flow__controls-button svg {
+	fill: currentColor;
+}
+
+.react-flow__controls-button:last-child {
+	border-bottom: none !important;
+}
+
+.react-flow__edge-path {
+	stroke-linecap: round;
+}
+
+.react-flow__edge.animated path {
+	stroke-dasharray: 5 5;
+	animation: qg-dash 1.4s linear infinite;
+}
+
+@keyframes qg-dash {
+	to {
+		stroke-dashoffset: -20;
+	}
+}
+
+.react-flow__node.selected .qg-node-card {
+	border-color: var(--color-accent);
+	box-shadow:
+		0 0 0 1px var(--color-accent),
+		0 8px 24px rgba(184, 84, 42, 0.18);
+}
+
+.react-flow__handle {
+	opacity: 0;
+	pointer-events: none;
+	width: 1px;
+	height: 1px;
+}
+
+@media (max-width: 768px) {
+	.react-flow__panel.react-flow__controls {
+		margin-bottom: 5rem !important;
+	}
+}
+
+@keyframes qg-panel-in {
+	from { transform: translateX(100%); opacity: 0; }
+	to { transform: translateX(0); opacity: 1; }
+}
+@keyframes qg-panel-out {
+	from { transform: translateX(0); opacity: 1; }
+	to { transform: translateX(100%); opacity: 0; }
+}
+@keyframes qg-fade-in {
+	from { opacity: 0; }
+	to { opacity: 1; }
+}
+@keyframes qg-fade-out {
+	from { opacity: 1; }
+	to { opacity: 0; }
+}
+@keyframes qg-pop-in {
+	from { transform: translateY(8px) scale(0.96); opacity: 0; }
+	to { transform: translateY(0) scale(1); opacity: 1; }
+}
+@keyframes qg-pop-out {
+	from { transform: translateY(0) scale(1); opacity: 1; }
+	to { transform: translateY(8px) scale(0.96); opacity: 0; }
+}
+@keyframes qg-rise {
+	from { opacity: 0; transform: translateY(12px); }
+	to { opacity: 1; transform: translateY(0); }
+}
