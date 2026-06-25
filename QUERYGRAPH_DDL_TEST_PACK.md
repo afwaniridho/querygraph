@@ -1,4 +1,4 @@
-# Query Visualizer DDL Test Pack
+# QueryGraph DDL Test Pack
 
 Use this file to test schema-aware query visualization. Paste one DDL block into **Schema DDL** first, then paste one query at a time into the SQL editor.
 

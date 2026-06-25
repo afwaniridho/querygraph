@@ -65,3 +65,9 @@ The app is configured for Cloudflare Workers through the Cloudflare Vite plugin 
 ```bash
 pnpm run deploy
 ```
+
+## License
+
+This project is open source under the MIT License. Anyone is welcome to use, modify, and contribute to QueryGraph.
+
+When referencing this work, please mention the `querygraph` repository.

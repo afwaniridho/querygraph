@@ -1,5 +1,5 @@
 {
-	"name": "query-visualizer",
+	"name": "querygraph",
 	"private": true,
 	"type": "module",
 	"imports": {
