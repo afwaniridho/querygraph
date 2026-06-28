@@ -1,9 +1,11 @@
 import { test, expect } from "@playwright/test";
+import { encodeShareState } from "../src/lib/share-url";
 
 const selectAllShortcut = process.platform === "darwin" ? "Meta+A" : "Control+A";
 
 test.describe("QueryGraph E2E", () => {
-	test.beforeEach(async ({ page }) => {
+	test.beforeEach(async ({ page }, testInfo) => {
+		if (testInfo.title.includes("restores SQL, dialect, and schema")) return;
 		await page.goto("/");
 		await page.waitForSelector(".react-flow__node", { timeout: 15000 });
 	});
@@ -20,6 +22,64 @@ test.describe("QueryGraph E2E", () => {
 	test("shows PostgreSQL as default dialect", async ({ page }) => {
 		const pgBtn = page.locator("button", { hasText: "PostgreSQL" });
 		await expect(pgBtn).toHaveAttribute("data-on", "true");
+	});
+
+	test("restores SQL, dialect, and schema from a shared link", async ({
+		page,
+	}) => {
+		const shared = encodeShareState({
+			v: 1,
+			dialect: "mysql",
+			sql: "SELECT * FROM `customers` WHERE id = 1;",
+			ddl: "CREATE TABLE customers (id int PRIMARY KEY);",
+			schemaOpen: true,
+		});
+
+		await page.goto(`/#q=${shared}`);
+		await page.waitForSelector(".react-flow__node", { timeout: 15000 });
+
+		await expect(page.locator("button", { hasText: "MySQL" })).toHaveAttribute(
+			"data-on",
+			"true",
+		);
+		await expect(page.locator(".monaco-editor")).toContainText("`customers`");
+		await expect(page.getByLabel("Schema DDL")).toHaveValue(
+			/CREATE TABLE customers/,
+		);
+		await expect(page.locator("text=PK lookup").first()).toBeVisible();
+	});
+
+	test("share button writes a hash URL and shows status", async ({ page }) => {
+		await page.locator("button", { hasText: "Share" }).click();
+
+		await expect(
+			page.locator("button", { hasText: /Copied|Link ready/ }),
+		).toBeVisible();
+		expect(new URL(page.url()).hash).toMatch(/^#q=/);
+	});
+
+	test("applies a shared link after the app is already open", async ({ page }) => {
+		const shared = encodeShareState({
+			v: 1,
+			dialect: "mysql",
+			sql: "SELECT * FROM `orders` WHERE id = 7;",
+			ddl: "CREATE TABLE orders (id int PRIMARY KEY);",
+			schemaOpen: true,
+		});
+
+		await page.evaluate((hash) => {
+			window.location.hash = `q=${hash}`;
+		}, shared);
+
+		await expect(page.locator("button", { hasText: "MySQL" })).toHaveAttribute(
+			"data-on",
+			"true",
+		);
+		await expect(page.locator(".monaco-editor")).toContainText("`orders`");
+		await expect(page.getByLabel("Schema DDL")).toHaveValue(
+			/CREATE TABLE orders/,
+		);
+		await expect(page.locator("text=PK lookup").first()).toBeVisible();
 	});
 
 	test("shows parses as you type hint", async ({ page }) => {

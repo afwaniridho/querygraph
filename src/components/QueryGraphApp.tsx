@@ -14,7 +14,14 @@ import {
 	useReactFlow,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { CircleHelp, Database, GitBranch, PanelsTopLeft } from "lucide-react";
+import {
+	Check,
+	CircleHelp,
+	Database,
+	GitBranch,
+	Link,
+	PanelsTopLeft,
+} from "lucide-react";
 import type * as MonacoNS from "monaco-editor";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AboutModal } from "#/components/AboutModal";
@@ -33,12 +40,18 @@ import { NodeActionsContext } from "#/lib/node-actions";
 import { parseSql } from "#/lib/parse";
 import type { SourceSpan } from "#/lib/pipeline";
 import { parseSchema } from "#/lib/schema/parse-schema";
+import {
+	decodeShareState,
+	encodeShareState,
+	type ShareState,
+} from "#/lib/share-url";
 
 const nodeTypes = { sql: SqlNode };
 const edgeTypes = { recursive: RecursiveEdge };
 
 const DEBOUNCE_MS = 280;
 const CLOSE_MS = 200;
+const SHARE_RESET_MS = 1800;
 
 function readStoredDialect(): Dialect {
 	if (typeof window === "undefined") return "postgres";
@@ -62,6 +75,14 @@ function readStoredDdl(): Record<Dialect, string> {
 	}
 }
 
+function readSharedStateFromHash(): ShareState | null {
+	if (typeof window === "undefined") return null;
+	const hash = window.location.hash.replace(/^#/, "");
+	if (!hash) return null;
+	const value = new URLSearchParams(hash).get("q");
+	return value ? decodeShareState(value) : null;
+}
+
 function nodeAtOffset(nodes: Node[], offset: number): Node | null {
 	let best: Node | null = null;
 	let bestSize = Number.POSITIVE_INFINITY;
@@ -80,6 +101,10 @@ function nodeAtOffset(nodes: Node[], offset: number): Node | null {
 }
 
 function GraphStage() {
+	const [initialSharedState] = useState<ShareState | null>(
+		readSharedStateFromHash,
+	);
+	const [storedDdl] = useState<Record<Dialect, string>>(readStoredDdl);
 	const [nodes, setNodes] = useState<Node[]>([]);
 	const [edges, setEdges] = useState<Edge[]>([]);
 	const [parseError, setParseError] = useState<string | null>(null);
@@ -88,26 +113,50 @@ function GraphStage() {
 	const [panelClosing, setPanelClosing] = useState(false);
 	const [aboutOpen, setAboutOpen] = useState(false);
 	const [aboutClosing, setAboutClosing] = useState(false);
+	const [shareStatus, setShareStatus] = useState<"idle" | "copied" | "ready">(
+		"idle",
+	);
 	const [mobilePane, setMobilePane] = useState<"editor" | "diagram">("editor");
-	const [dialect, setDialect] = useState<Dialect>(readStoredDialect);
+	const [dialect, setDialect] = useState<Dialect>(
+		() => initialSharedState?.dialect ?? readStoredDialect(),
+	);
 	const [autoFitVersion, setAutoFitVersion] = useState(0);
 	const [sqlByDialect, setSqlByDialect] = useState<Record<Dialect, string>>(
-		() => ({ ...DEFAULT_SQL }),
+		() => ({
+			...DEFAULT_SQL,
+			...(initialSharedState && {
+				[initialSharedState.dialect]: initialSharedState.sql,
+			}),
+		}),
 	);
 	const [sqlText, setSqlText] = useState(
-		() => DEFAULT_SQL[readStoredDialect()],
+		() =>
+			initialSharedState?.sql ??
+			DEFAULT_SQL[initialSharedState?.dialect ?? readStoredDialect()],
 	);
 	const [ddlByDialect, setDdlByDialect] = useState<Record<Dialect, string>>(
-		() => readStoredDdl(),
+		() => ({
+			...storedDdl,
+			...(initialSharedState && {
+				[initialSharedState.dialect]: initialSharedState.ddl,
+			}),
+		}),
 	);
 	const [ddlText, setDdlText] = useState(
-		() => readStoredDdl()[readStoredDialect()],
+		() =>
+			initialSharedState?.ddl ??
+			storedDdl[initialSharedState?.dialect ?? readStoredDialect()],
 	);
-	const [schemaOpen, setSchemaOpen] = useState(false);
+	const [schemaOpen, setSchemaOpen] = useState(() =>
+		initialSharedState
+			? initialSharedState.schemaOpen || Boolean(initialSharedState.ddl.trim())
+			: false,
+	);
 	const [schemaError, setSchemaError] = useState<string | null>(null);
 	const [schemaSummary, setSchemaSummary] = useState<string | null>(null);
 
 	const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const shareResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const editorRef = useRef<MonacoNS.editor.IStandaloneCodeEditor | null>(null);
 	const monacoRef = useRef<typeof MonacoNS | null>(null);
 	const decorationsRef =
@@ -121,6 +170,12 @@ function GraphStage() {
 	useEffect(() => {
 		nodesRef.current = nodes;
 	}, [nodes]);
+
+	useEffect(() => {
+		return () => {
+			if (shareResetRef.current) clearTimeout(shareResetRef.current);
+		};
+	}, []);
 
 	const tieRange = useCallback((loc: SourceSpan) => {
 		const editor = editorRef.current;
@@ -187,6 +242,48 @@ function GraphStage() {
 		},
 		[clearTie],
 	);
+
+	const applySharedState = useCallback(
+		(shared: ShareState) => {
+			if (debounceRef.current) clearTimeout(debounceRef.current);
+			setPanelClosing(false);
+			setDetailNode(null);
+			setDialect(shared.dialect);
+			setSqlText(shared.sql);
+			setSqlByDialect((prev) => ({
+				...prev,
+				[shared.dialect]: shared.sql,
+			}));
+			setDdlText(shared.ddl);
+			setDdlByDialect((prev) => ({
+				...prev,
+				[shared.dialect]: shared.ddl,
+			}));
+			setSchemaOpen(shared.schemaOpen || Boolean(shared.ddl.trim()));
+
+			const ed = editorRef.current;
+			if (ed && ed.getValue() !== shared.sql) {
+				suppressProgrammaticChangeRef.current = true;
+				try {
+					ed.setValue(shared.sql);
+				} finally {
+					suppressProgrammaticChangeRef.current = false;
+				}
+			}
+
+			runParse(shared.sql, shared.dialect, shared.ddl);
+		},
+		[runParse],
+	);
+
+	useEffect(() => {
+		const onHashChange = () => {
+			const shared = readSharedStateFromHash();
+			if (shared) applySharedState(shared);
+		};
+		window.addEventListener("hashchange", onHashChange);
+		return () => window.removeEventListener("hashchange", onHashChange);
+	}, [applySharedState]);
 
 	// Parse the initial default query once on mount. Later parses run via
 	// handleChange (typing) and switchDialect (dialect switch).
@@ -457,6 +554,36 @@ function GraphStage() {
 		[],
 	);
 
+	const handleShare = useCallback(async () => {
+		if (typeof window === "undefined") return;
+		const currentSql = editorRef.current?.getValue() ?? sqlText;
+		const payload: ShareState = {
+			v: 1,
+			dialect,
+			sql: currentSql,
+			ddl: ddlText,
+			schemaOpen,
+		};
+		const url = new URL(window.location.href);
+		url.hash = `q=${encodeShareState(payload)}`;
+		window.history.replaceState(null, "", url);
+
+		let copied = false;
+		try {
+			await window.navigator.clipboard?.writeText(url.toString());
+			copied = true;
+		} catch {
+			copied = false;
+		}
+
+		setShareStatus(copied ? "copied" : "ready");
+		if (shareResetRef.current) clearTimeout(shareResetRef.current);
+		shareResetRef.current = setTimeout(() => {
+			setShareStatus("idle");
+			shareResetRef.current = null;
+		}, SHARE_RESET_MS);
+	}, [dialect, ddlText, schemaOpen, sqlText]);
+
 	const decoratedNodes = useMemo(() => {
 		return nodes.map((n) =>
 			n.id === activeId ? { ...n, selected: true } : { ...n, selected: false },
@@ -486,6 +613,22 @@ function GraphStage() {
 						</div>
 					</div>
 					<div className="ml-auto flex items-center gap-1">
+						<button
+							type="button"
+							onClick={handleShare}
+							className="flex h-9 items-center gap-1.5 rounded px-3 font-mono text-[0.75rem] text-ink-2 transition hover:bg-paper-2 hover:text-ink"
+						>
+							{shareStatus === "idle" ? (
+								<Link size={15} />
+							) : (
+								<Check size={15} />
+							)}
+							{shareStatus === "copied"
+								? "Copied"
+								: shareStatus === "ready"
+									? "Link ready"
+									: "Share"}
+						</button>
 						<button
 							type="button"
 							onClick={() => {
