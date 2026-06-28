@@ -58,6 +58,83 @@ test.describe("QueryGraph E2E", () => {
 		expect(new URL(page.url()).hash).toMatch(/^#q=/);
 	});
 
+	test("opens the gallery and loads an example with expected findings", async ({
+		page,
+	}) => {
+		await page.getByTestId("open-examples").click();
+		await expect(page.getByTestId("examples-gallery")).toBeVisible();
+		await page.getByTestId("example-left-join-filter").click();
+
+		await expect(page.getByTestId("active-example")).toContainText(
+			"Missing profiles disappear",
+		);
+		await expect(
+			page.getByTestId("finding-left-join-filtered-in-where"),
+		).toBeVisible();
+		await expect(page.locator(".monaco-editor")).toContainText(
+			"LEFT JOIN profiles",
+		);
+	});
+
+	test("selecting a finding reveals SQL and focuses its graph node", async ({
+		page,
+	}) => {
+		await page.getByTestId("open-examples").click();
+		await page.getByTestId("example-function-indexed-column").click();
+		await page.getByTestId("finding-indexed-column-expression").click();
+
+		await expect(page.locator("[data-source-linked=true]")).toBeVisible();
+		await expect(page.locator(".react-flow__node.selected")).toHaveCount(1);
+		await expect(page.getByTestId("query-health")).toContainText(
+			"Rewrite direction",
+		);
+		await expect(page.getByTestId("query-health")).toContainText(
+			"estimate confidence",
+		);
+		await expect(page.getByTestId("query-health")).toContainText("schema");
+	});
+
+	test("teaches NULL semantics through a definite finding", async ({ page }) => {
+		await page.getByTestId("open-examples").click();
+		await page.getByTestId("example-null-equality").click();
+		await page.getByTestId("finding-null-comparison").click();
+
+		await expect(page.getByTestId("query-health")).toContainText(
+			"NULL comparison never evaluates to true",
+		);
+		await expect(page.getByTestId("query-health")).toContainText(
+			"definite confidence",
+		);
+		await expect(page.getByTestId("query-health")).toContainText("IS NULL");
+	});
+
+	test("shares the complete loaded example state", async ({ page }) => {
+		await page.getByTestId("open-examples").click();
+		await page.getByTestId("example-leading-like").click();
+		await page.locator("button", { hasText: "Share" }).click();
+
+		expect(new URL(page.url()).hash).toMatch(/^#q=/);
+		await expect(page.getByLabel("Schema DDL")).toContainText(
+			"products_name_idx",
+		);
+		await expect(page.locator(".monaco-editor")).toContainText("%wireless%");
+	});
+
+	test("gallery and health remain usable on mobile", async ({ page }) => {
+		await page.setViewportSize({ width: 390, height: 844 });
+		await page.getByTestId("open-examples").click();
+		await expect(page.getByTestId("examples-gallery")).toBeVisible();
+		await page.getByTestId("example-limit-no-order").click();
+
+		await expect(page.getByTestId("finding-limit-without-order")).toBeVisible();
+		await expect(
+			page.getByRole("button", { name: "SQL", exact: true }),
+		).toBeVisible();
+		await expect(
+			page.getByRole("button", { name: "Diagram", exact: true }),
+		).toBeVisible();
+	});
+
 	test("applies a shared link after the app is already open", async ({ page }) => {
 		const shared = encodeShareState({
 			v: 1,

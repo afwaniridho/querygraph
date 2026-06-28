@@ -54,12 +54,14 @@ export function AboutModal({ closing, onClose }: Props) {
 					<p>
 						QueryGraph reads a PostgreSQL or MySQL statement and draws it back
 						to you as a step-by-step diagram — every clause becomes a numbered
-						card, wired in the order the database actually runs them.
+						card, wired in a simplified logical SQL-processing order. It is not
+						a database execution plan.
 					</p>
 					<p>
-						Paste a query, pick a dialect, and watch the pipeline assemble
-						itself. Nothing connects to a database and nothing is sent anywhere;
-						the parsing happens right here in your browser.
+						Paste a query or open a clinic example, then use Query Health to
+						review evidence-based static findings. Nothing connects to a
+						database and nothing is sent anywhere; analysis happens in your
+						browser.
 					</p>
 					<p>
 						It is built for anyone who inherited a 40-line query and needs to

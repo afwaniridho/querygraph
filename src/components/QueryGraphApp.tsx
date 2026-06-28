@@ -15,6 +15,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import {
+	BookOpen,
 	Check,
 	CircleHelp,
 	Database,
@@ -25,7 +26,9 @@ import {
 import type * as MonacoNS from "monaco-editor";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AboutModal } from "#/components/AboutModal";
+import { ExamplesGallery } from "#/components/ExamplesGallery";
 import { NodeDetailsPanel } from "#/components/NodeDetailsPanel";
+import { QueryHealthPanel } from "#/components/QueryHealthPanel";
 import { RecursiveEdge } from "#/components/RecursiveEdge";
 import { SqlNode } from "#/components/SqlNode";
 import {
@@ -36,9 +39,14 @@ import {
 	type Dialect,
 	isDialect,
 } from "#/lib/dialect";
+import type { SqlExample } from "#/lib/examples";
 import { NodeActionsContext } from "#/lib/node-actions";
 import { parseSql } from "#/lib/parse";
 import type { SourceSpan } from "#/lib/pipeline";
+import {
+	analyzeQueryHealth,
+	type HealthFinding,
+} from "#/lib/query-health/analyze";
 import { parseSchema } from "#/lib/schema/parse-schema";
 import {
 	decodeShareState,
@@ -112,6 +120,12 @@ function GraphStage() {
 	const [detailNode, setDetailNode] = useState<Node | null>(null);
 	const [panelClosing, setPanelClosing] = useState(false);
 	const [aboutOpen, setAboutOpen] = useState(false);
+	const [examplesOpen, setExamplesOpen] = useState(false);
+	const [activeExample, setActiveExample] = useState<SqlExample | null>(null);
+	const [findings, setFindings] = useState<HealthFinding[]>([]);
+	const [selectedFinding, setSelectedFinding] = useState<HealthFinding | null>(
+		null,
+	);
 	const [aboutClosing, setAboutClosing] = useState(false);
 	const [shareStatus, setShareStatus] = useState<"idle" | "copied" | "ready">(
 		"idle",
@@ -193,7 +207,11 @@ function GraphStage() {
 					end.lineNumber,
 					end.column,
 				),
-				options: { className: "qg-source-tie", isWholeLine: false },
+				options: {
+					className: "qg-source-tie",
+					inlineClassName: "qg-source-tie",
+					isWholeLine: false,
+				},
 			},
 		]);
 	}, []);
@@ -233,10 +251,28 @@ function GraphStage() {
 			const result = parseSql(raw, forDialect, schema);
 			if (result.error) {
 				setParseError(result.error);
+				setFindings([]);
+				setSelectedFinding(null);
 				return;
 			}
 			setNodes(result.nodes);
 			setEdges(result.edges);
+			const nextFindings = analyzeQueryHealth({
+				sql: raw,
+				dialect: forDialect,
+				nodes: result.nodes,
+				schema,
+			});
+			setFindings(nextFindings);
+			setSelectedFinding((current) =>
+				current
+					? (nextFindings.find(
+							(item) =>
+								item.ruleId === current.ruleId &&
+								item.nodeId === current.nodeId,
+						) ?? null)
+					: null,
+			);
 			setParseError(null);
 			setAutoFitVersion((version) => version + 1);
 		},
@@ -512,6 +548,70 @@ function GraphStage() {
 		[tieRange, revealLoc],
 	);
 
+	const selectFinding = useCallback(
+		(finding: HealthFinding) => {
+			setSelectedFinding(finding);
+			setMobilePane("editor");
+			if (finding.sourceSpan) {
+				tieRange(finding.sourceSpan);
+				revealLoc(finding.sourceSpan);
+				const editor = editorRef.current;
+				const monaco = monacoRef.current;
+				const model = editor?.getModel();
+				if (editor && monaco && model) {
+					const start = model.getPositionAt(finding.sourceSpan.start);
+					const end = model.getPositionAt(finding.sourceSpan.end);
+					editor.setSelection(
+						new monaco.Range(
+							start.lineNumber,
+							start.column,
+							end.lineNumber,
+							end.column,
+						),
+					);
+				}
+			}
+			if (finding.nodeId) {
+				const node = nodesRef.current.find(
+					(candidate) => candidate.id === finding.nodeId,
+				);
+				if (node) focusNode(node);
+			}
+		},
+		[focusNode, revealLoc, tieRange],
+	);
+
+	const loadExample = useCallback(
+		(example: SqlExample) => {
+			const ddl = example.ddl ?? "";
+			if (debounceRef.current) clearTimeout(debounceRef.current);
+			setExamplesOpen(false);
+			setActiveExample(example);
+			setDialect(example.dialect);
+			setSqlText(example.sql);
+			setSqlByDialect((prev) => ({
+				...prev,
+				[example.dialect]: example.sql,
+			}));
+			setDdlText(ddl);
+			setDdlByDialect((prev) => ({ ...prev, [example.dialect]: ddl }));
+			setSchemaOpen(Boolean(ddl));
+			window.localStorage.setItem(DIALECT_STORAGE_KEY, example.dialect);
+			const editor = editorRef.current;
+			if (editor) {
+				suppressProgrammaticChangeRef.current = true;
+				try {
+					editor.setValue(example.sql);
+				} finally {
+					suppressProgrammaticChangeRef.current = false;
+				}
+			}
+			if (debounceRef.current) clearTimeout(debounceRef.current);
+			runParse(example.sql, example.dialect, ddl);
+		},
+		[runParse],
+	);
+
 	const handleNodeClick = useCallback(
 		(_: React.MouseEvent, node: Node) => focusNode(node),
 		[focusNode],
@@ -615,6 +715,15 @@ function GraphStage() {
 					<div className="ml-auto flex items-center gap-1">
 						<button
 							type="button"
+							onClick={() => setExamplesOpen(true)}
+							data-testid="open-examples"
+							className="flex h-9 items-center gap-1.5 rounded px-3 font-mono text-[0.75rem] text-ink-2 transition hover:bg-paper-2 hover:text-ink"
+						>
+							<BookOpen size={15} />
+							Examples
+						</button>
+						<button
+							type="button"
 							onClick={handleShare}
 							className="flex h-9 items-center gap-1.5 rounded px-3 font-mono text-[0.75rem] text-ink-2 transition hover:bg-paper-2 hover:text-ink"
 						>
@@ -678,6 +787,19 @@ function GraphStage() {
 								) : null}
 							</button>
 						</div>
+						{activeExample && (
+							<div
+								className="border-b border-rule bg-paper-2 px-4 py-2"
+								data-testid="active-example"
+							>
+								<p className="font-mono text-[0.5625rem] tracking-wide text-accent uppercase">
+									Clinic case · {activeExample.title}
+								</p>
+								<p className="mt-0.5 text-xs leading-snug text-ink-3">
+									{activeExample.objective}
+								</p>
+							</div>
+						)}
 						{schemaOpen && (
 							<div className="flex min-h-[7rem] flex-col border-b border-rule bg-paper-2">
 								<div className="flex items-center justify-between px-4 py-1.5">
@@ -729,7 +851,10 @@ function GraphStage() {
 								{parseError}
 							</div>
 						)}
-						<div className="min-h-0 flex-1">
+						<div
+							className="min-h-0 flex-1"
+							data-source-linked={Boolean(selectedFinding?.sourceSpan)}
+						>
 							<Editor
 								height="100%"
 								defaultLanguage="sql"
@@ -771,6 +896,11 @@ function GraphStage() {
 								}}
 							/>
 						</div>
+						<QueryHealthPanel
+							findings={findings}
+							selected={selectedFinding}
+							onSelect={selectFinding}
+						/>
 					</section>
 
 					<section
@@ -840,6 +970,12 @@ function GraphStage() {
 			</div>
 
 			{aboutOpen && <AboutModal closing={aboutClosing} onClose={closeAbout} />}
+			{examplesOpen && (
+				<ExamplesGallery
+					onClose={() => setExamplesOpen(false)}
+					onSelect={loadExample}
+				/>
+			)}
 		</NodeActionsContext.Provider>
 	);
 }
