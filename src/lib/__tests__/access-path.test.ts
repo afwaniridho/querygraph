@@ -304,10 +304,7 @@ describe("access-aware table/source prose", () => {
 	});
 
 	it("retains schemaless behavior with no schema (no access info, generic prose)", () => {
-		const flow = parseSql(
-			"SELECT * FROM customers WHERE id = 40;",
-			"postgres",
-		);
+		const flow = parseSql("SELECT * FROM customers WHERE id = 40;", "postgres");
 		const node = flow.nodes.find((n) => n.data?.kind === "table");
 		expect(node?.data.access).toBeUndefined();
 		expect(node?.data.prose as string).toMatch(/Reads every row/i);

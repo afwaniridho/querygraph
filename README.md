@@ -13,6 +13,7 @@ QueryGraph is a local-only Guided Query Clinic for PostgreSQL and MySQL. Paste S
 - Finding-to-SQL and finding-to-graph navigation
 - Node detail panels with plain-language explanations
 - Local-only parsing with no database connection required
+- Self-contained, crawler-visible share pages with privacy-safe social previews
 
 Query Health reports high-confidence query structure and DDL-based estimates. It never claims to be an actual `EXPLAIN`; confirm performance changes with the target database and production-like data.
 
@@ -20,6 +21,45 @@ Each finding declares its category, confidence, and evidence source. See
 [QUERY_HEALTH_CAPABILITIES.md](QUERY_HEALTH_CAPABILITIES.md) for implemented
 coverage and the explicit boundary between browser-local analysis and concerns
 that require a live database or application context.
+
+## Sharing and privacy
+
+New share links use this versioned route:
+
+```text
+/share/v2/<deflate-compressed-base64url-payload>
+```
+
+The payload contains the selected dialect, SQL, optional schema DDL,
+schema-panel state, and a validated aggregate preview summary. It is compressed
+with DEFLATE and encoded with URL-safe Base64. Encoding is not encryption:
+anyone who receives the URL can recover the SQL and DDL. Query parsing and Query
+Health analysis still run in the visitor's browser; there is no database,
+account, expiring snapshot, analytics, or remote share storage.
+
+Social crawlers can read server-rendered Open Graph and Twitter metadata from
+the share route. Metadata and the dynamic SVG preview use only allowlisted
+aggregate values (dialect, statement type, logical-step count, table count,
+major clause categories, and finding counts). They never include SQL, DDL,
+comments, identifiers, or literal values. Share pages are marked `noindex,
+nofollow`.
+
+Existing `#q=` version 1 links remain supported. Opening one does not rewrite
+browser history. The link is upgraded to the v2 route only after an explicit
+Share action.
+
+### Self-contained link limits
+
+- SQL: 32,768 UTF-8 bytes
+- DDL: 32,768 UTF-8 bytes
+- Total decoded payload: 72,000 bytes
+- Encoded payload: 15,000 URL characters
+- Complete generated URL: 15,900 characters
+
+The URL ceiling stays below Cloudflare Workers' 16 KB request-URL limit.
+QueryGraph rejects corrupt, unsupported, oversized, and non-UTF-8 payloads.
+Oversized content is never truncated or uploaded; the editor remains intact so
+the user can copy the SQL or reduce the included schema.
 
 ## Development
 

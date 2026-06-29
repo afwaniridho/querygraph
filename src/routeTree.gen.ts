@@ -10,33 +10,53 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ShareV2PayloadRouteImport } from './routes/share.v2.$payload'
+import { Route as ShareImageV2PayloadRouteImport } from './routes/share-image.v2.$payload'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ShareV2PayloadRoute = ShareV2PayloadRouteImport.update({
+  id: '/share/v2/$payload',
+  path: '/share/v2/$payload',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ShareImageV2PayloadRoute = ShareImageV2PayloadRouteImport.update({
+  id: '/share-image/v2/$payload',
+  path: '/share-image/v2/$payload',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/share-image/v2/$payload': typeof ShareImageV2PayloadRoute
+  '/share/v2/$payload': typeof ShareV2PayloadRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/share-image/v2/$payload': typeof ShareImageV2PayloadRoute
+  '/share/v2/$payload': typeof ShareV2PayloadRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/share-image/v2/$payload': typeof ShareImageV2PayloadRoute
+  '/share/v2/$payload': typeof ShareV2PayloadRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths: '/' | '/share-image/v2/$payload' | '/share/v2/$payload'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to: '/' | '/share-image/v2/$payload' | '/share/v2/$payload'
+  id: '__root__' | '/' | '/share-image/v2/$payload' | '/share/v2/$payload'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ShareImageV2PayloadRoute: typeof ShareImageV2PayloadRoute
+  ShareV2PayloadRoute: typeof ShareV2PayloadRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -48,11 +68,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/share/v2/$payload': {
+      id: '/share/v2/$payload'
+      path: '/share/v2/$payload'
+      fullPath: '/share/v2/$payload'
+      preLoaderRoute: typeof ShareV2PayloadRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/share-image/v2/$payload': {
+      id: '/share-image/v2/$payload'
+      path: '/share-image/v2/$payload'
+      fullPath: '/share-image/v2/$payload'
+      preLoaderRoute: typeof ShareImageV2PayloadRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ShareImageV2PayloadRoute: ShareImageV2PayloadRoute,
+  ShareV2PayloadRoute: ShareV2PayloadRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

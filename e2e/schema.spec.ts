@@ -61,7 +61,7 @@ test.describe("Schema DDL access paths", () => {
 
 	test("invalid DDL shows an error but keeps the diagram", async ({ page }) => {
 		await page.locator("button", { hasText: "Schema" }).click();
-		const ddl = page.locator("textarea");
+		const ddl = page.getByLabel("Schema DDL");
 		await ddl.click();
 		await ddl.fill("CREATE TABLE (");
 		await page.waitForTimeout(600);

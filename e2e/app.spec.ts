@@ -1,7 +1,16 @@
 import { test, expect } from "@playwright/test";
-import { encodeShareState } from "../src/lib/share-url";
 
 const selectAllShortcut = process.platform === "darwin" ? "Meta+A" : "Control+A";
+
+function encodeLegacyShareState(value: unknown): string {
+	const bytes = new TextEncoder().encode(JSON.stringify(value));
+	let binary = "";
+	for (const byte of bytes) binary += String.fromCharCode(byte);
+	return btoa(binary)
+		.replace(/\+/g, "-")
+		.replace(/\//g, "_")
+		.replace(/=+$/g, "");
+}
 
 test.describe("QueryGraph E2E", () => {
 	test.beforeEach(async ({ page }, testInfo) => {
@@ -27,7 +36,7 @@ test.describe("QueryGraph E2E", () => {
 	test("restores SQL, dialect, and schema from a shared link", async ({
 		page,
 	}) => {
-		const shared = encodeShareState({
+		const shared = encodeLegacyShareState({
 			v: 1,
 			dialect: "mysql",
 			sql: "SELECT * FROM `customers` WHERE id = 1;",
@@ -49,13 +58,13 @@ test.describe("QueryGraph E2E", () => {
 		await expect(page.locator("text=PK lookup").first()).toBeVisible();
 	});
 
-	test("share button writes a hash URL and shows status", async ({ page }) => {
+	test("share dialog creates a crawler-visible URL", async ({ page }) => {
 		await page.locator("button", { hasText: "Share" }).click();
+		await page.getByTestId("copy-share-link").click();
 
 		await expect(
-			page.locator("button", { hasText: /Copied|Link ready/ }),
+			page.getByText(/Link copied|Link ready to copy manually/),
 		).toBeVisible();
-		expect(new URL(page.url()).hash).toMatch(/^#q=/);
 	});
 
 	test("opens the gallery and loads an example with expected findings", async ({
@@ -112,8 +121,11 @@ test.describe("QueryGraph E2E", () => {
 		await page.getByTestId("open-examples").click();
 		await page.getByTestId("example-leading-like").click();
 		await page.locator("button", { hasText: "Share" }).click();
+		await page.getByTestId("copy-share-link").click();
 
-		expect(new URL(page.url()).hash).toMatch(/^#q=/);
+		await expect(
+			page.getByText(/Link copied|Link ready to copy manually/),
+		).toBeVisible();
 		await expect(page.getByLabel("Schema DDL")).toContainText(
 			"products_name_idx",
 		);
@@ -136,7 +148,7 @@ test.describe("QueryGraph E2E", () => {
 	});
 
 	test("applies a shared link after the app is already open", async ({ page }) => {
-		const shared = encodeShareState({
+		const shared = encodeLegacyShareState({
 			v: 1,
 			dialect: "mysql",
 			sql: "SELECT * FROM `orders` WHERE id = 7;",

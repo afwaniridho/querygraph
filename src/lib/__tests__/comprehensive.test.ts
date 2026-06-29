@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { parseSql } from "#/lib/parse";
-import { plainEnglish, detailedContext } from "#/lib/narrate";
 import { sanitize } from "#/lib/dialect";
 import { lookupClause } from "#/lib/encyclopedia";
+import { detailedContext, plainEnglish } from "#/lib/narrate";
+import { parseSql } from "#/lib/parse";
 
 function pg(sql: string) {
 	return parseSql(sql, "postgres");
@@ -51,13 +51,13 @@ describe("PostgreSQL SELECT variations", () => {
 
 	it("SELECT with schema-qualified table", () => {
 		const ls = pgLabels("SELECT * FROM public.users;");
-		expect(ls.some((l) => l.includes("users") || l.includes("public"))).toBe(true);
+		expect(ls.some((l) => l.includes("users") || l.includes("public"))).toBe(
+			true,
+		);
 	});
 
 	it("SELECT with multiple WHERE conditions (AND/OR)", () => {
-		const ks = pgKinds(
-			"SELECT * FROM t WHERE a > 1 AND b < 2 OR c = 3;",
-		);
+		const ks = pgKinds("SELECT * FROM t WHERE a > 1 AND b < 2 OR c = 3;");
 		expect(ks).toContain("where");
 	});
 
@@ -124,9 +124,7 @@ describe("PostgreSQL SELECT variations", () => {
 	});
 
 	it("SELECT with multiple ORDER BY columns", () => {
-		const ks = pgKinds(
-			"SELECT * FROM t ORDER BY a ASC, b DESC, c;",
-		);
+		const ks = pgKinds("SELECT * FROM t ORDER BY a ASC, b DESC, c;");
 		expect(ks).toContain("orderby");
 	});
 
@@ -166,9 +164,7 @@ describe("PostgreSQL SELECT variations", () => {
 
 describe("PostgreSQL JOIN variations", () => {
 	it("INNER JOIN", () => {
-		const ks = pgKinds(
-			"SELECT * FROM a INNER JOIN b ON a.id = b.a_id;",
-		);
+		const ks = pgKinds("SELECT * FROM a INNER JOIN b ON a.id = b.a_id;");
 		expect(ks).toContain("join");
 	});
 
@@ -187,9 +183,7 @@ describe("PostgreSQL JOIN variations", () => {
 	});
 
 	it("FULL OUTER JOIN", () => {
-		const r = pg(
-			"SELECT * FROM a FULL OUTER JOIN b ON a.id = b.a_id;",
-		);
+		const r = pg("SELECT * FROM a FULL OUTER JOIN b ON a.id = b.a_id;");
 		expect(r.error).toBeUndefined();
 		const join = r.nodes.find((n) => n.data.kind === "join");
 		expect(join?.data.label).toContain("FULL");
@@ -328,9 +322,7 @@ describe("PostgreSQL DML", () => {
 	});
 
 	it("INSERT with multiple value rows", () => {
-		const r = pg(
-			"INSERT INTO t (a, b) VALUES (1, 2), (3, 4), (5, 6);",
-		);
+		const r = pg("INSERT INTO t (a, b) VALUES (1, 2), (3, 4), (5, 6);");
 		expect(r.error).toBeUndefined();
 	});
 
@@ -355,25 +347,19 @@ describe("PostgreSQL DML", () => {
 	});
 
 	it("UPDATE with SET and WHERE", () => {
-		const ks = pgKinds(
-			"UPDATE users SET name = 'John' WHERE id = 1;",
-		);
+		const ks = pgKinds("UPDATE users SET name = 'John' WHERE id = 1;");
 		expect(ks).toContain("update");
 		expect(ks).toContain("set");
 		expect(ks).toContain("where");
 	});
 
 	it("UPDATE with multiple SET columns", () => {
-		const r = pg(
-			"UPDATE t SET a = 1, b = 2, c = 3 WHERE id = 1;",
-		);
+		const r = pg("UPDATE t SET a = 1, b = 2, c = 3 WHERE id = 1;");
 		expect(r.error).toBeUndefined();
 	});
 
 	it("UPDATE ... RETURNING", () => {
-		const ks = pgKinds(
-			"UPDATE t SET a = 1 WHERE id = 1 RETURNING *;",
-		);
+		const ks = pgKinds("UPDATE t SET a = 1 WHERE id = 1 RETURNING *;");
 		expect(ks).toContain("returning");
 	});
 
@@ -397,9 +383,7 @@ describe("PostgreSQL DML", () => {
 
 describe("PostgreSQL CREATE TABLE", () => {
 	it("basic CREATE TABLE", () => {
-		const ks = pgKinds(
-			"CREATE TABLE users (id INTEGER, name VARCHAR(100));",
-		);
+		const ks = pgKinds("CREATE TABLE users (id INTEGER, name VARCHAR(100));");
 		expect(ks).toContain("create");
 		expect(ks).toContain("column");
 	});
@@ -434,7 +418,9 @@ describe("PostgreSQL subqueries", () => {
 			"SELECT * FROM (SELECT id, name FROM users WHERE active = true) AS active_users;",
 		);
 		expect(r.error).toBeUndefined();
-		expect(r.nodes.some((n) => String(n.data.label).includes("subquery"))).toBe(true);
+		expect(r.nodes.some((n) => String(n.data.label).includes("subquery"))).toBe(
+			true,
+		);
 	});
 
 	it("correlated subquery in WHERE", () => {
@@ -515,9 +501,7 @@ describe("PostgreSQL error handling", () => {
 	});
 
 	it("explicit CTE column list returns a hint", () => {
-		const r = pg(
-			"WITH cte (a, b) AS (SELECT 1, 2) SELECT * FROM cte;",
-		);
+		const r = pg("WITH cte (a, b) AS (SELECT 1, 2) SELECT * FROM cte;");
 		expect(r.error).toBeDefined();
 		expect(r.error).toMatch(/CTE column/i);
 	});
@@ -546,9 +530,7 @@ describe("MySQL SELECT variations", () => {
 	});
 
 	it("SELECT with multiple WHERE conditions", () => {
-		const r = my(
-			"SELECT * FROM t WHERE a > 1 AND b < 2 OR c = 3;",
-		);
+		const r = my("SELECT * FROM t WHERE a > 1 AND b < 2 OR c = 3;");
 		expect(r.error).toBeUndefined();
 	});
 
@@ -570,9 +552,7 @@ describe("MySQL SELECT variations", () => {
 	});
 
 	it("SELECT with IS NULL / IS NOT NULL", () => {
-		const r = my(
-			"SELECT * FROM t WHERE col IS NULL AND other IS NOT NULL;",
-		);
+		const r = my("SELECT * FROM t WHERE col IS NULL AND other IS NOT NULL;");
 		expect(r.error).toBeUndefined();
 	});
 
@@ -609,9 +589,7 @@ describe("MySQL SELECT variations", () => {
 	});
 
 	it("SELECT with multiple ORDER BY", () => {
-		const ks = myKinds(
-			"SELECT * FROM t ORDER BY a ASC, b DESC, c;",
-		);
+		const ks = myKinds("SELECT * FROM t ORDER BY a ASC, b DESC, c;");
 		expect(ks).toContain("orderby");
 	});
 
@@ -642,18 +620,14 @@ describe("MySQL SELECT variations", () => {
 	});
 
 	it("SELECT with INTERVAL", () => {
-		const r = my(
-			"SELECT * FROM t WHERE created_at > NOW() - INTERVAL 7 DAY;",
-		);
+		const r = my("SELECT * FROM t WHERE created_at > NOW() - INTERVAL 7 DAY;");
 		expect(r.error).toBeUndefined();
 	});
 });
 
 describe("MySQL JOIN variations", () => {
 	it("INNER JOIN", () => {
-		const ks = myKinds(
-			"SELECT * FROM a INNER JOIN b ON a.id = b.a_id;",
-		);
+		const ks = myKinds("SELECT * FROM a INNER JOIN b ON a.id = b.a_id;");
 		expect(ks).toContain("join");
 	});
 
@@ -675,9 +649,7 @@ describe("MySQL JOIN variations", () => {
 	});
 
 	it("STRAIGHT_JOIN", () => {
-		const ks = myKinds(
-			"SELECT * FROM t1 STRAIGHT_JOIN t2 ON t1.id = t2.id;",
-		);
+		const ks = myKinds("SELECT * FROM t1 STRAIGHT_JOIN t2 ON t1.id = t2.id;");
 		expect(ks).toContain("straight_join");
 	});
 
@@ -769,9 +741,7 @@ describe("MySQL DML", () => {
 	});
 
 	it("UPDATE with SET and WHERE", () => {
-		const ks = myKinds(
-			"UPDATE users SET name = 'John' WHERE id = 1;",
-		);
+		const ks = myKinds("UPDATE users SET name = 'John' WHERE id = 1;");
 		expect(ks).toContain("update");
 		expect(ks).toContain("set");
 		expect(ks).toContain("where");
@@ -811,9 +781,7 @@ describe("MySQL DML", () => {
 
 describe("MySQL CREATE TABLE", () => {
 	it("basic CREATE TABLE", () => {
-		const ks = myKinds(
-			"CREATE TABLE users (id INT, name VARCHAR(100));",
-		);
+		const ks = myKinds("CREATE TABLE users (id INT, name VARCHAR(100));");
 		expect(ks).toContain("create");
 		expect(ks).toContain("column");
 	});
@@ -824,9 +792,7 @@ describe("MySQL CREATE TABLE", () => {
 		);
 		expect(r.error).toBeUndefined();
 		const idCol = r.nodes.find(
-			(n) =>
-				n.data.kind === "column" &&
-				String(n.data.label).startsWith("id"),
+			(n) => n.data.kind === "column" && String(n.data.label).startsWith("id"),
 		);
 		expect(idCol?.data.label).toContain("AUTO_INCREMENT");
 	});
@@ -902,9 +868,7 @@ describe("MySQL error handling", () => {
 	});
 
 	it("ON CONFLICT is PostgreSQL-only", () => {
-		const r = my(
-			"INSERT INTO t (id) VALUES (1) ON CONFLICT (id) DO NOTHING;",
-		);
+		const r = my("INSERT INTO t (id) VALUES (1) ON CONFLICT (id) DO NOTHING;");
 		// Should either error or not produce on_conflict nodes
 		if (!r.error) {
 			expect(r.nodes.some((n) => n.data.kind === "on_conflict")).toBe(false);
@@ -1003,16 +967,12 @@ describe("edge cases", () => {
 	});
 
 	it("SQL with comments", () => {
-		const r = pg(
-			"SELECT * FROM users -- this is a comment\nWHERE id = 1;",
-		);
+		const r = pg("SELECT * FROM users -- this is a comment\nWHERE id = 1;");
 		expect(r.error).toBeUndefined();
 	});
 
 	it("SQL with block comments", () => {
-		const r = pg(
-			"SELECT * /* comment */ FROM users WHERE id = 1;",
-		);
+		const r = pg("SELECT * /* comment */ FROM users WHERE id = 1;");
 		expect(r.error).toBeUndefined();
 	});
 
@@ -1130,29 +1090,17 @@ describe("narration - plainEnglish", () => {
 	});
 
 	it("join narrates the join type", () => {
-		const text = plainEnglish(
-			"join",
-			"LEFT JOIN ON a.id = b.a_id",
-			"postgres",
-		);
+		const text = plainEnglish("join", "LEFT JOIN ON a.id = b.a_id", "postgres");
 		expect(text).toContain("JOIN");
 	});
 
 	it("CROSS JOIN narrates correctly", () => {
-		const text = plainEnglish(
-			"join",
-			"CROSS JOIN",
-			"postgres",
-		);
+		const text = plainEnglish("join", "CROSS JOIN", "postgres");
 		expect(text).toContain("every row");
 	});
 
 	it("NATURAL JOIN narrates correctly", () => {
-		const text = plainEnglish(
-			"join",
-			"NATURAL JOIN",
-			"postgres",
-		);
+		const text = plainEnglish("join", "NATURAL JOIN", "postgres");
 		expect(text).toContain("identically-named");
 	});
 
@@ -1163,20 +1111,12 @@ describe("narration - plainEnglish", () => {
 	});
 
 	it("groupby narrates bucketing", () => {
-		const text = plainEnglish(
-			"groupby",
-			"GROUP BY department",
-			"postgres",
-		);
+		const text = plainEnglish("groupby", "GROUP BY department", "postgres");
 		expect(text).toContain("department");
 	});
 
 	it("orderby narrates sorting", () => {
-		const text = plainEnglish(
-			"orderby",
-			"ORDER BY name ASC",
-			"postgres",
-		);
+		const text = plainEnglish("orderby", "ORDER BY name ASC", "postgres");
 		expect(text).toContain("name ASC");
 	});
 
@@ -1186,7 +1126,9 @@ describe("narration - plainEnglish", () => {
 	});
 
 	it("union narrates correctly", () => {
-		expect(plainEnglish("union", "UNION", "postgres")).toContain("dropping duplicates");
+		expect(plainEnglish("union", "UNION", "postgres")).toContain(
+			"dropping duplicates",
+		);
 		expect(plainEnglish("union", "UNION ALL", "postgres")).toContain(
 			"duplicates and all",
 		);
@@ -1199,44 +1141,26 @@ describe("narration - plainEnglish", () => {
 	});
 
 	it("delete narrates removal", () => {
-		const text = plainEnglish(
-			"delete",
-			"DELETE FROM users",
-			"postgres",
-		);
+		const text = plainEnglish("delete", "DELETE FROM users", "postgres");
 		expect(text).toContain("users");
 	});
 
 	it("update narrates rewrite", () => {
-		const text = plainEnglish(
-			"update",
-			"UPDATE users",
-			"postgres",
-		);
+		const text = plainEnglish("update", "UPDATE users", "postgres");
 		expect(text).toContain("users");
 	});
 
 	it("values narrates literal rows", () => {
-		expect(plainEnglish("values", "VALUES", "postgres")).toContain(
-			"literal",
-		);
+		expect(plainEnglish("values", "VALUES", "postgres")).toContain("literal");
 	});
 
 	it("create narrates table definition", () => {
-		const text = plainEnglish(
-			"create",
-			"CREATE TABLE users",
-			"postgres",
-		);
+		const text = plainEnglish("create", "CREATE TABLE users", "postgres");
 		expect(text).toContain("users");
 	});
 
 	it("returning narrates echo", () => {
-		const text = plainEnglish(
-			"returning",
-			"RETURNING id",
-			"postgres",
-		);
+		const text = plainEnglish("returning", "RETURNING id", "postgres");
 		expect(text).toContain("id");
 	});
 
@@ -1246,11 +1170,7 @@ describe("narration - plainEnglish", () => {
 	});
 
 	it("cte narrates correctly (recursive)", () => {
-		const text = plainEnglish(
-			"cte",
-			"RECURSIVE: tree",
-			"postgres",
-		);
+		const text = plainEnglish("cte", "RECURSIVE: tree", "postgres");
 		expect(text).toContain("looping");
 	});
 
@@ -1302,29 +1222,17 @@ describe("narration - plainEnglish", () => {
 	});
 
 	it("multi_table_update narrates correctly", () => {
-		const text = plainEnglish(
-			"multi_table_update",
-			"UPDATE t1, t2",
-			"mysql",
-		);
+		const text = plainEnglish("multi_table_update", "UPDATE t1, t2", "mysql");
 		expect(text).toContain("t1, t2");
 	});
 
 	it("multi_table_delete narrates correctly", () => {
-		const text = plainEnglish(
-			"multi_table_delete",
-			"DELETE t1, t2",
-			"mysql",
-		);
+		const text = plainEnglish("multi_table_delete", "DELETE t1, t2", "mysql");
 		expect(text).toContain("t1, t2");
 	});
 
 	it("index_hint narrates correctly", () => {
-		const text = plainEnglish(
-			"index_hint",
-			"USE INDEX (idx_name)",
-			"mysql",
-		);
+		const text = plainEnglish("index_hint", "USE INDEX (idx_name)", "mysql");
 		expect(text).toContain("USE INDEX");
 	});
 
@@ -1364,29 +1272,17 @@ describe("narration - detailedContext", () => {
 	});
 
 	it("provides CROSS JOIN explanation", () => {
-		const text = detailedContext(
-			"join",
-			"CROSS JOIN",
-			"postgres",
-		);
+		const text = detailedContext("join", "CROSS JOIN", "postgres");
 		expect(text).toContain("Cartesian");
 	});
 
 	it("provides INSERT IGNORE explanation", () => {
-		const text = detailedContext(
-			"insert_ignore",
-			"INSERT IGNORE",
-			"mysql",
-		);
+		const text = detailedContext("insert_ignore", "INSERT IGNORE", "mysql");
 		expect(text).toContain("duplicate-key");
 	});
 
 	it("provides REPLACE explanation (not upsert)", () => {
-		const text = detailedContext(
-			"replace",
-			"REPLACE INTO t",
-			"mysql",
-		);
+		const text = detailedContext("replace", "REPLACE INTO t", "mysql");
 		expect(text).toContain("not an upsert");
 	});
 
@@ -1416,29 +1312,17 @@ describe("narration - detailedContext", () => {
 	});
 
 	it("provides RETURNING explanation (PG-only note in mysql)", () => {
-		const text = detailedContext(
-			"returning",
-			"RETURNING id",
-			"mysql",
-		);
+		const text = detailedContext("returning", "RETURNING id", "mysql");
 		expect(text).toContain("PostgreSQL");
 	});
 
 	it("provides STRAIGHT_JOIN explanation", () => {
-		const text = detailedContext(
-			"straight_join",
-			"STRAIGHT_JOIN",
-			"mysql",
-		);
+		const text = detailedContext("straight_join", "STRAIGHT_JOIN", "mysql");
 		expect(text).toContain("left table");
 	});
 
 	it("provides index hint explanation", () => {
-		const text = detailedContext(
-			"index_hint",
-			"USE INDEX (idx)",
-			"mysql",
-		);
+		const text = detailedContext("index_hint", "USE INDEX (idx)", "mysql");
 		expect(text).toContain("USE INDEX");
 	});
 
@@ -1473,11 +1357,7 @@ describe("narration - detailedContext", () => {
 	});
 
 	it("falls back for unknown kind", () => {
-		const text = detailedContext(
-			"unknown_kind",
-			"SOMETHING",
-			"postgres",
-		);
+		const text = detailedContext("unknown_kind", "SOMETHING", "postgres");
 		expect(text).toContain("SOMETHING");
 	});
 });
@@ -1502,10 +1382,27 @@ describe("encyclopedia lookupClause", () => {
 
 	it("has entries for all expected postgres kinds", () => {
 		const expected = [
-			"table", "insert_target", "join", "where", "having", "select",
-			"distinct_on", "groupby", "orderby", "limit", "cte", "union",
-			"values", "insert", "on_conflict", "update", "delete", "set",
-			"returning", "create", "column",
+			"table",
+			"insert_target",
+			"join",
+			"where",
+			"having",
+			"select",
+			"distinct_on",
+			"groupby",
+			"orderby",
+			"limit",
+			"cte",
+			"union",
+			"values",
+			"insert",
+			"on_conflict",
+			"update",
+			"delete",
+			"set",
+			"returning",
+			"create",
+			"column",
 		];
 		for (const kind of expected) {
 			const entry = lookupClause(kind, "postgres");
@@ -1517,11 +1414,32 @@ describe("encyclopedia lookupClause", () => {
 
 	it("has entries for all expected mysql kinds", () => {
 		const expected = [
-			"table", "insert_target", "join", "straight_join", "where", "having",
-			"select", "distinct_on", "groupby", "orderby", "limit", "index_hint",
-			"cte", "union", "values", "insert", "insert_ignore", "replace",
-			"on_duplicate_key", "update", "multi_table_update", "delete",
-			"multi_table_delete", "set", "create", "column",
+			"table",
+			"insert_target",
+			"join",
+			"straight_join",
+			"where",
+			"having",
+			"select",
+			"distinct_on",
+			"groupby",
+			"orderby",
+			"limit",
+			"index_hint",
+			"cte",
+			"union",
+			"values",
+			"insert",
+			"insert_ignore",
+			"replace",
+			"on_duplicate_key",
+			"update",
+			"multi_table_update",
+			"delete",
+			"multi_table_delete",
+			"set",
+			"create",
+			"column",
 		];
 		for (const kind of expected) {
 			const entry = lookupClause(kind, "mysql");
@@ -1534,17 +1452,13 @@ describe("encyclopedia lookupClause", () => {
 
 describe("pipeline rendering", () => {
 	it("produces correct number of nodes", () => {
-		const r = pg(
-			"SELECT * FROM users WHERE id > 5 ORDER BY name LIMIT 10;",
-		);
+		const r = pg("SELECT * FROM users WHERE id > 5 ORDER BY name LIMIT 10;");
 		// table, where, select, orderby, limit = 5
 		expect(r.nodes.length).toBe(5);
 	});
 
 	it("produces correct number of edges", () => {
-		const r = pg(
-			"SELECT * FROM users WHERE id > 5 ORDER BY name LIMIT 10;",
-		);
+		const r = pg("SELECT * FROM users WHERE id > 5 ORDER BY name LIMIT 10;");
 		// 4 edges connecting 5 nodes in a chain
 		expect(r.edges.length).toBe(4);
 	});
@@ -1577,9 +1491,7 @@ describe("pipeline rendering", () => {
 	});
 
 	it("step numbers are sequential starting from 1", () => {
-		const r = pg(
-			"SELECT * FROM users WHERE id > 5 ORDER BY name LIMIT 10;",
-		);
+		const r = pg("SELECT * FROM users WHERE id > 5 ORDER BY name LIMIT 10;");
 		const steps = r.nodes.map((n) => n.data.step as number);
 		expect(steps).toEqual([1, 2, 3, 4, 5]);
 	});
@@ -1752,7 +1664,9 @@ describe("complex real-world MySQL queries", () => {
 			WHERE i.warehouse_id = 1;
 		`);
 		expect(r.error).toBeUndefined();
-		expect(r.nodes.some((n) => n.data.kind === "multi_table_update")).toBe(true);
+		expect(r.nodes.some((n) => n.data.kind === "multi_table_update")).toBe(
+			true,
+		);
 	});
 
 	it("multi-table DELETE", () => {
@@ -1763,7 +1677,9 @@ describe("complex real-world MySQL queries", () => {
 			WHERE o.created_at < '2020-01-01';
 		`);
 		expect(r.error).toBeUndefined();
-		expect(r.nodes.some((n) => n.data.kind === "multi_table_delete")).toBe(true);
+		expect(r.nodes.some((n) => n.data.kind === "multi_table_delete")).toBe(
+			true,
+		);
 	});
 
 	it("REPLACE INTO", () => {

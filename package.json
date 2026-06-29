@@ -29,6 +29,7 @@
 		"@tanstack/router-plugin": "^1.132.0",
 		"@xyflow/react": "^12.11.0",
 		"dagre": "^0.8.5",
+		"fflate": "^0.8.3",
 		"lucide-react": "^0.545.0",
 		"node-sql-parser": "5.4.0",
 		"pgsql-ast-parser": "^12.0.2",

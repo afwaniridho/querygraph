@@ -5,7 +5,7 @@
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "querygraph",
-	"compatibility_date": "2025-09-02",
+	"compatibility_date": "2026-06-24",
 	"compatibility_flags": [
 		"nodejs_compat"
 	],

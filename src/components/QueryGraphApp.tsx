@@ -18,10 +18,12 @@ import {
 	BookOpen,
 	Check,
 	CircleHelp,
+	Copy,
 	Database,
 	GitBranch,
 	Link,
 	PanelsTopLeft,
+	X,
 } from "lucide-react";
 import type * as MonacoNS from "monaco-editor";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -48,9 +50,13 @@ import {
 	type HealthFinding,
 } from "#/lib/query-health/analyze";
 import { parseSchema } from "#/lib/schema/parse-schema";
+import { createPreviewSummary } from "#/lib/share-preview";
 import {
-	decodeShareState,
-	encodeShareState,
+	buildSharePath,
+	decodeLegacyShareState,
+	type RestorableShareState,
+	SHARE_LIMITS,
+	ShareLimitError,
 	type ShareState,
 } from "#/lib/share-url";
 
@@ -83,12 +89,12 @@ function readStoredDdl(): Record<Dialect, string> {
 	}
 }
 
-function readSharedStateFromHash(): ShareState | null {
+function readSharedStateFromHash(): RestorableShareState | null {
 	if (typeof window === "undefined") return null;
 	const hash = window.location.hash.replace(/^#/, "");
 	if (!hash) return null;
 	const value = new URLSearchParams(hash).get("q");
-	return value ? decodeShareState(value) : null;
+	return value ? decodeLegacyShareState(value) : null;
 }
 
 function nodeAtOffset(nodes: Node[], offset: number): Node | null {
@@ -108,9 +114,15 @@ function nodeAtOffset(nodes: Node[], offset: number): Node | null {
 	return best;
 }
 
-function GraphStage() {
-	const [initialSharedState] = useState<ShareState | null>(
-		readSharedStateFromHash,
+function GraphStage({
+	initialShareState,
+	isShared,
+}: {
+	initialShareState?: RestorableShareState;
+	isShared: boolean;
+}) {
+	const [initialSharedState] = useState<RestorableShareState | null>(() =>
+		initialShareState ? initialShareState : readSharedStateFromHash(),
 	);
 	const [storedDdl] = useState<Record<Dialect, string>>(readStoredDdl);
 	const [nodes, setNodes] = useState<Node[]>([]);
@@ -127,9 +139,12 @@ function GraphStage() {
 		null,
 	);
 	const [aboutClosing, setAboutClosing] = useState(false);
-	const [shareStatus, setShareStatus] = useState<"idle" | "copied" | "ready">(
-		"idle",
-	);
+	const [shareOpen, setShareOpen] = useState(false);
+	const [shareStatus, setShareStatus] = useState<
+		"idle" | "copied" | "markdown" | "ready" | "error"
+	>("idle");
+	const [shareUrl, setShareUrl] = useState("");
+	const [shareError, setShareError] = useState<string | null>(null);
 	const [mobilePane, setMobilePane] = useState<"editor" | "diagram">("editor");
 	const [dialect, setDialect] = useState<Dialect>(
 		() => initialSharedState?.dialect ?? readStoredDialect(),
@@ -280,7 +295,7 @@ function GraphStage() {
 	);
 
 	const applySharedState = useCallback(
-		(shared: ShareState) => {
+		(shared: RestorableShareState) => {
 			if (debounceRef.current) clearTimeout(debounceRef.current);
 			setPanelClosing(false);
 			setDetailNode(null);
@@ -654,35 +669,83 @@ function GraphStage() {
 		[],
 	);
 
-	const handleShare = useCallback(async () => {
+	const createShareUrl = useCallback(() => {
 		if (typeof window === "undefined") return;
 		const currentSql = editorRef.current?.getValue() ?? sqlText;
 		const payload: ShareState = {
-			v: 1,
+			v: 2,
 			dialect,
 			sql: currentSql,
 			ddl: ddlText,
 			schemaOpen,
+			preview: createPreviewSummary(nodes, findings),
 		};
-		const url = new URL(window.location.href);
-		url.hash = `q=${encodeShareState(payload)}`;
-		window.history.replaceState(null, "", url);
-
-		let copied = false;
-		try {
-			await window.navigator.clipboard?.writeText(url.toString());
-			copied = true;
-		} catch {
-			copied = false;
+		const url = new URL(buildSharePath(payload), window.location.origin);
+		if (url.toString().length > SHARE_LIMITS.urlCharacters) {
+			throw new ShareLimitError("url-too-large");
 		}
+		setShareUrl(url.toString());
+		return { url: url.toString() };
+	}, [dialect, ddlText, schemaOpen, sqlText, nodes, findings]);
 
-		setShareStatus(copied ? "copied" : "ready");
-		if (shareResetRef.current) clearTimeout(shareResetRef.current);
-		shareResetRef.current = setTimeout(() => {
-			setShareStatus("idle");
-			shareResetRef.current = null;
-		}, SHARE_RESET_MS);
-	}, [dialect, ddlText, schemaOpen, sqlText]);
+	const copyShareValue = useCallback(
+		async (format: "url" | "markdown") => {
+			setShareError(null);
+			let generated: ReturnType<typeof createShareUrl>;
+			try {
+				generated = createShareUrl();
+			} catch (error) {
+				const message =
+					error instanceof ShareLimitError
+						? "This query is too large for a self-contained link. Keep your editor open, then copy the SQL directly or remove unused schema DDL."
+						: "QueryGraph could not create this share link.";
+				setShareError(message);
+				setShareStatus("error");
+				return;
+			}
+			if (!generated) return;
+			const value =
+				format === "markdown"
+					? `[QueryGraph shared SQL visualization](${generated.url})`
+					: generated.url;
+			let copied = false;
+			try {
+				if (!window.navigator.clipboard?.writeText) {
+					throw new Error("Clipboard unavailable");
+				}
+				await window.navigator.clipboard.writeText(value);
+				copied = true;
+			} catch {
+				copied = false;
+			}
+
+			setShareStatus(
+				copied ? (format === "markdown" ? "markdown" : "copied") : "ready",
+			);
+			if (shareResetRef.current) clearTimeout(shareResetRef.current);
+			shareResetRef.current = setTimeout(() => {
+				setShareStatus("idle");
+				shareResetRef.current = null;
+			}, SHARE_RESET_MS);
+		},
+		[createShareUrl],
+	);
+
+	const handleShare = useCallback(() => {
+		setShareError(null);
+		setShareStatus("idle");
+		setShareOpen(true);
+	}, []);
+
+	const copyFallback = useCallback(async () => {
+		try {
+			if (!window.navigator.clipboard?.writeText) return;
+			await window.navigator.clipboard.writeText(shareUrl);
+			setShareStatus("copied");
+		} catch {
+			setShareStatus("ready");
+		}
+	}, [shareUrl]);
 
 	const decoratedNodes = useMemo(() => {
 		return nodes.map((n) =>
@@ -707,6 +770,9 @@ function GraphStage() {
 						<h1 className="font-display text-[1.3rem] font-semibold leading-none tracking-[-0.035em] text-ink">
 							QueryGraph
 						</h1>
+						<p className="hidden text-xs text-ink-4 sm:block">
+							Read SQL like a flowchart
+						</p>
 					</div>
 					<div className="ml-auto flex items-center gap-1">
 						<button
@@ -721,18 +787,11 @@ function GraphStage() {
 						<button
 							type="button"
 							onClick={handleShare}
+							aria-haspopup="dialog"
 							className="flex h-9 items-center gap-1.5 rounded px-3 font-mono text-[0.75rem] text-ink-2 transition hover:bg-paper-2 hover:text-ink"
 						>
-							{shareStatus === "idle" ? (
-								<Link size={15} />
-							) : (
-								<Check size={15} />
-							)}
-							{shareStatus === "copied"
-								? "Copied"
-								: shareStatus === "ready"
-									? "Link ready"
-									: "Share"}
+							<Link size={15} />
+							Share
 						</button>
 						<button
 							type="button"
@@ -747,6 +806,20 @@ function GraphStage() {
 						</button>
 					</div>
 				</header>
+				{isShared ? (
+					<div
+						data-testid="shared-query-indicator"
+						className="flex shrink-0 flex-wrap items-center justify-center gap-x-3 gap-y-1 border-b border-rule bg-paper-2 px-4 py-1.5 text-center text-xs text-ink-3"
+					>
+						<span className="font-mono tracking-wide text-teal-2 uppercase">
+							Shared query
+						</span>
+						<span>
+							Edit this query freely — changes affect only your local copy.
+						</span>
+						<span>Analysis still runs in your browser.</span>
+					</div>
+				) : null}
 
 				<div className="relative flex min-h-0 flex-1">
 					<section
@@ -972,14 +1045,141 @@ function GraphStage() {
 					onSelect={loadExample}
 				/>
 			)}
+			{shareOpen ? (
+				<div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+					<button
+						type="button"
+						aria-label="Close share dialog"
+						onClick={() => setShareOpen(false)}
+						className="absolute inset-0 cursor-default bg-ink/35 backdrop-blur-sm"
+					/>
+					<section
+						role="dialog"
+						aria-modal="true"
+						aria-labelledby="share-dialog-title"
+						className="relative w-full max-w-lg rounded border border-rule bg-paper p-5 shadow-2xl"
+					>
+						<div className="flex items-start justify-between gap-4">
+							<div>
+								<p className="font-mono text-[0.625rem] tracking-widest text-accent uppercase">
+									Self-contained link
+								</p>
+								<h2
+									id="share-dialog-title"
+									className="mt-1 font-display text-2xl font-semibold text-ink"
+								>
+									Share this visualization
+								</h2>
+							</div>
+							<button
+								type="button"
+								aria-label="Close"
+								onClick={() => setShareOpen(false)}
+								className="flex h-9 w-9 shrink-0 items-center justify-center rounded text-ink-3 hover:bg-paper-2"
+							>
+								<X size={18} />
+							</button>
+						</div>
+						<p className="mt-3 text-sm leading-relaxed text-ink-3">
+							SQL and schema DDL are compressed and encoded in the URL, not
+							encrypted. Anyone with the link can recover them.
+						</p>
+						{ddlText.trim() ||
+						new TextEncoder().encode(editorRef.current?.getValue() ?? sqlText)
+							.byteLength > 20_000 ? (
+							<p className="mt-2 rounded border border-rule bg-paper-2 px-3 py-2 text-xs leading-relaxed text-ink-2">
+								{ddlText.trim()
+									? "This link includes schema DDL. Review it for sensitive identifiers before copying."
+									: "This is an unusually large query. The resulting URL may not work in every messaging app."}
+							</p>
+						) : null}
+						<div className="mt-5 grid gap-2 sm:grid-cols-2">
+							<button
+								type="button"
+								data-testid="copy-share-link"
+								onClick={() => copyShareValue("url")}
+								className="flex items-center justify-center gap-2 rounded bg-ink px-4 py-2.5 font-mono text-xs text-paper"
+							>
+								{shareStatus === "copied" ? (
+									<Check size={15} />
+								) : (
+									<Copy size={15} />
+								)}
+								{shareStatus === "copied" ? "Link copied" : "Copy link"}
+							</button>
+							<button
+								type="button"
+								data-testid="copy-markdown-link"
+								onClick={() => copyShareValue("markdown")}
+								className="flex items-center justify-center gap-2 rounded border border-rule px-4 py-2.5 font-mono text-xs text-ink-2 hover:bg-paper-2"
+							>
+								{shareStatus === "markdown" ? (
+									<Check size={15} />
+								) : (
+									<Copy size={15} />
+								)}
+								{shareStatus === "markdown"
+									? "Markdown copied"
+									: "Copy Markdown link"}
+							</button>
+						</div>
+						{shareError ? (
+							<p
+								role="alert"
+								data-testid="share-error"
+								className="mt-3 text-sm leading-relaxed text-accent"
+							>
+								{shareError}
+							</p>
+						) : null}
+						{shareStatus === "ready" && shareUrl ? (
+							<div className="mt-3">
+								<output className="mb-2 block text-sm text-teal-2">
+									Link ready to copy manually.
+								</output>
+								<label
+									htmlFor="share-url-fallback"
+									className="font-mono text-[0.625rem] tracking-wide text-ink-3 uppercase"
+								>
+									Clipboard unavailable — copy this link manually
+								</label>
+								<div className="mt-1 flex gap-2">
+									<input
+										id="share-url-fallback"
+										data-testid="share-url-fallback"
+										readOnly
+										value={shareUrl}
+										onFocus={(event) => event.currentTarget.select()}
+										className="min-w-0 flex-1 rounded border border-rule bg-paper-2 px-3 py-2 font-mono text-xs text-ink"
+									/>
+									<button
+										type="button"
+										onClick={copyFallback}
+										aria-label="Try copying again"
+										className="rounded border border-rule px-3 text-ink-2"
+									>
+										<Copy size={15} />
+									</button>
+								</div>
+							</div>
+						) : null}
+					</section>
+				</div>
+			) : null}
 		</NodeActionsContext.Provider>
 	);
 }
 
-export function QueryGraphApp() {
+export function QueryGraphApp({
+	initialShareState,
+	isShared = false,
+}: {
+	initialShareState?: RestorableShareState;
+	isShared?: boolean;
+}) {
 	return (
 		<ReactFlowProvider>
-			<GraphStage />
+			<GraphStage initialShareState={initialShareState} isShared={isShared} />
 		</ReactFlowProvider>
 	);
 }

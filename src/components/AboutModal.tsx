@@ -60,8 +60,9 @@ export function AboutModal({ closing, onClose }: Props) {
 					<p>
 						Paste a query or open a clinic example, then use Query Health to
 						review evidence-based static findings. Nothing connects to a
-						database and nothing is sent anywhere; analysis happens in your
-						browser.
+						database; parsing and analysis happen in your browser. If you
+						explicitly create a share link, its URL contains the compressed SQL
+						and optional DDL so the recipient can reconstruct it.
 					</p>
 					<p>
 						It is built for anyone who inherited a 40-line query and needs to
