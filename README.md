@@ -1,6 +1,9 @@
 # QueryGraph
 
-QueryGraph is a local-only Guided Query Clinic for PostgreSQL and MySQL. Paste SQL or load a curated example to see a simplified logical processing diagram and deterministic Query Health findings. The diagram is not the database's physical execution plan.
+QueryGraph has two local-only modes:
+
+- **Query Logic** parses PostgreSQL or MySQL SQL into a simplified logical diagram and deterministic Query Health findings. It is not the database's physical execution order.
+- **Execution Plan** parses PostgreSQL `EXPLAIN (FORMAT JSON)` output into the physical plan tree, node details, and conservative Plan Health findings.
 
 ## Features
 
@@ -14,8 +17,46 @@ QueryGraph is a local-only Guided Query Clinic for PostgreSQL and MySQL. Paste S
 - Node detail panels with plain-language explanations
 - Local-only parsing with no database connection required
 - Self-contained, crawler-visible share pages with privacy-safe social previews
+- PostgreSQL estimated and analyzed execution-plan visualization at `/explain`
+- Plan details for costs, actual per-loop metrics, filtering, buffers, I/O, sorting, hashing, and workers
 
 Query Health reports high-confidence query structure and DDL-based estimates. It never claims to be an actual `EXPLAIN`; confirm performance changes with the target database and production-like data.
+
+## PostgreSQL execution plans
+
+Generate an estimated plan without running the statement:
+
+```sql
+EXPLAIN (FORMAT JSON)
+SELECT ...;
+```
+
+Generate observed runtime and buffer metrics:
+
+```sql
+EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)
+SELECT ...;
+```
+
+`EXPLAIN ANALYZE` executes the statement. `INSERT`, `UPDATE`, `DELETE`, and
+functions with side effects can modify data. QueryGraph itself never executes
+the SQL or connects to a database; plan parsing and findings stay in the
+browser.
+
+The execution-plan mode accepts the standard one-element PostgreSQL JSON array
+and unambiguous plan objects. Text, YAML, XML, SQL-only input, and MySQL
+`EXPLAIN` are not supported. MySQL execution plans are future work.
+
+Limits are 2 MB of UTF-8 input, 1,000 nodes, and a maximum depth of 100. Cost is
+shown as planner cost units, not milliseconds. Actual node times are inclusive
+and may be per-loop averages, so QueryGraph does not sum them to invent a total.
+Plans without `ANALYZE` or `BUFFERS` do not receive fabricated runtime or buffer
+metrics.
+
+Execution-plan sharing is intentionally deferred: plans commonly contain
+relation/index names, predicates, literal values, and operational details, and
+large plans are a poor fit for the existing self-contained URL format. No
+remote storage was introduced.
 
 Each finding declares its category, confidence, and evidence source. See
 [QUERY_HEALTH_CAPABILITIES.md](QUERY_HEALTH_CAPABILITIES.md) for implemented
@@ -106,6 +147,7 @@ pnpm format
 - `src/lib/schema` parses optional DDL used by access path analysis.
 - `src/lib/access-path` derives scan and index hints from schema metadata.
 - `src/lib/query-health` contains presentation-independent rule evaluation and finding types.
+- `src/lib/explain` contains PostgreSQL plan parsing, normalized types, metrics, examples, explanations, and Plan Health rules.
 - `src/lib/examples.ts` contains the gallery's stable example definitions.
 - `src/lib/__tests__` contains parser, schema, narration, and integration coverage.
 - `e2e` contains Playwright coverage for the browser workflow.

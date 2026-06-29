@@ -1,0 +1,646 @@
+import {
+	Background,
+	BackgroundVariant,
+	Controls,
+	type Edge,
+	type Node,
+	ReactFlow,
+	ReactFlowProvider,
+	useReactFlow,
+} from "@xyflow/react";
+import "@xyflow/react/dist/style.css";
+import { Link } from "@tanstack/react-router";
+import dagre from "dagre";
+import {
+	AlertTriangle,
+	BookOpen,
+	CheckCircle2,
+	Clipboard,
+	Copy,
+	Database,
+	FileJson,
+	Info,
+	RotateCcw,
+} from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { PLAN_EXAMPLES, type PlanExample } from "#/lib/explain/examples";
+import { nodeCategory } from "#/lib/explain/explain";
+import { analyzePlan } from "#/lib/explain/health";
+import { formatNumber } from "#/lib/explain/metrics";
+import { PLAN_LIMITS, parsePostgresPlan } from "#/lib/explain/parser";
+import {
+	type ExecutionPlan,
+	type PlanFinding,
+	type PlanNode,
+	PlanParseError,
+} from "#/lib/explain/types";
+import { PlanDetailsDrawer } from "./PlanDetailsDrawer";
+import { PlanNodeCard, type PlanNodeData } from "./PlanNodeCard";
+
+const nodeTypes = { plan: PlanNodeCard };
+const CURRENT_SQL_KEY = "querygraph.current-sql";
+const PLAN_INPUT_KEY = "querygraph.explain-input";
+const estimatedCommand = "EXPLAIN (FORMAT JSON)\nSELECT ...;";
+const analyzedCommand = "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)\nSELECT ...;";
+
+function copy(value: string) {
+	return navigator.clipboard?.writeText(value);
+}
+
+function layout(
+	plan: ExecutionPlan,
+	findings: PlanFinding[],
+	onOpen: (node: PlanNode) => void,
+): { nodes: Node<PlanNodeData>[]; edges: Edge[] } {
+	const graph = new dagre.graphlib.Graph();
+	graph.setDefaultEdgeLabel(() => ({}));
+	graph.setGraph({
+		rankdir: "TB",
+		nodesep: 34,
+		ranksep: 72,
+		marginx: 24,
+		marginy: 24,
+	});
+	for (const node of plan.nodes)
+		graph.setNode(node.id, { width: 238, height: 132 });
+	for (const node of plan.nodes) {
+		for (const childId of node.childIds) graph.setEdge(node.id, childId);
+	}
+	dagre.layout(graph);
+	return {
+		nodes: plan.nodes.map((node) => {
+			const point = graph.node(node.id);
+			return {
+				id: node.id,
+				type: "plan",
+				position: { x: point.x - 119, y: point.y - 66 },
+				data: {
+					node,
+					findings: findings.filter((item) => item.nodeId === node.id),
+					onOpen,
+					category: nodeCategory(node),
+				},
+			};
+		}),
+		edges: plan.nodes.flatMap((node) =>
+			node.childIds.map((childId) => ({
+				id: `${node.id}-${childId}`,
+				source: node.id,
+				target: childId,
+				label: plan.nodeById[childId]?.parentRelationship,
+				style: { stroke: "var(--color-ink-3)" },
+			})),
+		),
+	};
+}
+
+function App() {
+	const [input, setInput] = useState(() =>
+		typeof window === "undefined"
+			? ""
+			: (window.localStorage.getItem(PLAN_INPUT_KEY) ?? ""),
+	);
+	const [plan, setPlan] = useState<ExecutionPlan | null>(null);
+	const [error, setError] = useState<PlanParseError | null>(null);
+	const [selected, setSelected] = useState<PlanNode | null>(null);
+	const [activeFinding, setActiveFinding] = useState<PlanFinding | null>(null);
+	const [mobilePane, setMobilePane] = useState<"input" | "plan" | "findings">(
+		"input",
+	);
+	const [activeExample, setActiveExample] = useState<PlanExample | null>(null);
+	const [copied, setCopied] = useState<string | null>(null);
+	const [hydrated, setHydrated] = useState(false);
+	const [desktop, setDesktop] = useState(() =>
+		typeof window === "undefined"
+			? true
+			: window.matchMedia("(min-width: 768px)").matches,
+	);
+	const { fitView, setCenter } = useReactFlow();
+	const findings = useMemo(() => (plan ? analyzePlan(plan) : []), [plan]);
+	const currentSql =
+		typeof window === "undefined"
+			? ""
+			: (window.localStorage.getItem(CURRENT_SQL_KEY) ?? "");
+
+	useEffect(() => setHydrated(true), []);
+
+	useEffect(() => {
+		const media = window.matchMedia("(min-width: 768px)");
+		const update = () => setDesktop(media.matches);
+		media.addEventListener("change", update);
+		return () => media.removeEventListener("change", update);
+	}, []);
+
+	useEffect(() => {
+		if (!input.trim()) {
+			setPlan(null);
+			setError(null);
+			return;
+		}
+		const timer = setTimeout(() => {
+			try {
+				setPlan(parsePostgresPlan(input));
+				setError(null);
+				setSelected(null);
+				window.localStorage.setItem(PLAN_INPUT_KEY, input);
+			} catch (nextError) {
+				setPlan(null);
+				setError(
+					nextError instanceof PlanParseError
+						? nextError
+						: new PlanParseError(
+								"invalid-structure",
+								"This plan could not be read.",
+							),
+				);
+			}
+		}, 220);
+		return () => clearTimeout(timer);
+	}, [input]);
+
+	const openNode = useCallback((node: PlanNode) => {
+		setSelected(node);
+	}, []);
+	const graph = useMemo(
+		() => (plan ? layout(plan, findings, openNode) : { nodes: [], edges: [] }),
+		[plan, findings, openNode],
+	);
+	useEffect(() => {
+		if (!plan) return;
+		const timer = setTimeout(() => fitView({ padding: 0.18, maxZoom: 1 }), 50);
+		return () => clearTimeout(timer);
+	}, [plan, fitView]);
+
+	const selectFinding = useCallback(
+		(item: PlanFinding) => {
+			if (!plan) return;
+			const node = plan.nodeById[item.nodeId];
+			if (!node) return;
+			setActiveFinding(item);
+			setSelected(node);
+			setMobilePane("plan");
+			const rendered = graph.nodes.find(
+				(candidate) => candidate.id === node.id,
+			);
+			if (rendered)
+				setCenter(rendered.position.x + 119, rendered.position.y + 66, {
+					zoom: 1,
+					duration: 350,
+				});
+		},
+		[plan, graph.nodes, setCenter],
+	);
+
+	const loadExample = (example: PlanExample) => {
+		setInput(example.json);
+		setActiveExample(example);
+		setMobilePane("plan");
+	};
+	const clear = () => {
+		setInput("");
+		setPlan(null);
+		setError(null);
+		setSelected(null);
+		setActiveFinding(null);
+		setActiveExample(null);
+		window.localStorage.removeItem(PLAN_INPUT_KEY);
+	};
+	const copyWithStatus = async (id: string, value: string) => {
+		try {
+			await copy(value);
+			setCopied(id);
+			setTimeout(() => setCopied(null), 1400);
+		} catch {
+			setCopied(null);
+		}
+	};
+	const root = plan ? plan.nodeById[plan.rootId] : undefined;
+	const counts = {
+		danger: findings.filter((item) => item.severity === "danger").length,
+		warning: findings.filter((item) => item.severity === "warning").length,
+		info: findings.filter((item) => item.severity === "info").length,
+	};
+	const sqlCommand = currentSql
+		? `EXPLAIN (FORMAT JSON)\n${currentSql.trim()}`
+		: estimatedCommand;
+	const currentSqlMayWrite =
+		Boolean(currentSql.trim()) && !/^(select|with\s)/i.test(currentSql.trim());
+
+	return (
+		<div className="flex h-dvh flex-col bg-paper text-ink">
+			<header className="flex shrink-0 items-center gap-3 border-b border-rule px-3 py-2.5 md:px-4">
+				<div className="flex items-center gap-2.5">
+					<img src="/logo192.png" alt="" className="h-9 w-9" />
+					<h1 className="hidden font-display text-[1.3rem] font-semibold tracking-[-.035em] sm:block">
+						QueryGraph
+					</h1>
+				</div>
+				<nav
+					aria-label="Product mode"
+					className="flex rounded border border-rule bg-paper-2 p-0.5"
+				>
+					<Link
+						to="/"
+						className="rounded px-2.5 py-1.5 font-mono text-[.65rem] text-ink-3 hover:text-ink"
+					>
+						Query Logic
+					</Link>
+					<Link
+						to="/explain"
+						className="rounded bg-paper px-2.5 py-1.5 font-mono text-[.65rem] text-accent shadow-sm"
+						aria-current="page"
+					>
+						Execution Plan
+					</Link>
+				</nav>
+				<div className="ml-auto hidden items-center gap-2 font-mono text-[.62rem] text-ink-4 md:flex">
+					<Database size={13} /> PostgreSQL · processed locally
+				</div>
+			</header>
+
+			<nav
+				aria-label="Execution plan views"
+				className="grid shrink-0 grid-cols-3 border-b border-rule md:hidden"
+			>
+				{(["input", "plan", "findings"] as const).map((pane) => (
+					<button
+						key={pane}
+						type="button"
+						onClick={() => setMobilePane(pane)}
+						data-active={mobilePane === pane}
+						className="h-11 border-r border-rule font-mono text-[.65rem] tracking-wide uppercase data-[active=true]:bg-paper-2 data-[active=true]:text-accent"
+					>
+						{pane}
+						{pane === "findings" && findings.length
+							? ` (${findings.length})`
+							: ""}
+					</button>
+				))}
+			</nav>
+
+			<div className="flex min-h-0 flex-1">
+				<section
+					data-active={mobilePane === "input"}
+					className="flex w-full flex-col border-r border-rule data-[active=false]:hidden md:flex md:w-[34%] md:max-w-[29rem] md:data-[active=false]:flex"
+				>
+					<div className="flex items-center justify-between border-b border-rule px-4 py-2">
+						<div>
+							<p className="font-mono text-[.62rem] tracking-widest text-ink-3 uppercase">
+								PostgreSQL JSON
+							</p>
+							<p className="mt-0.5 text-[.68rem] text-ink-4">
+								No upload or database connection
+							</p>
+						</div>
+						<button
+							type="button"
+							onClick={clear}
+							disabled={!hydrated}
+							className="flex h-9 items-center gap-1.5 rounded px-2 font-mono text-[.62rem] text-ink-3 hover:bg-paper-2"
+							data-testid="clear-plan"
+						>
+							<RotateCcw size={13} /> Clear
+						</button>
+					</div>
+					{activeExample ? (
+						<div className="border-b border-rule bg-paper-2 px-4 py-2">
+							<p className="font-mono text-[.58rem] text-accent uppercase">
+								Example · {activeExample.title}
+							</p>
+							<p className="mt-1 text-xs text-ink-3">{activeExample.notice}</p>
+						</div>
+					) : null}
+					{error ? (
+						<div
+							role="alert"
+							className="border-b border-accent/30 bg-accent/10 px-4 py-3 text-xs leading-relaxed text-accent-2"
+							data-testid="plan-error"
+						>
+							<p className="font-semibold">{error.message}</p>
+							<p className="mt-1">
+								Generate compatible output with:{" "}
+								<code className="font-mono">
+									EXPLAIN (FORMAT JSON) SELECT ...;
+								</code>
+							</p>
+							{error.technicalDetail ? (
+								<details className="mt-2">
+									<summary className="cursor-pointer">Technical detail</summary>
+									<p className="mt-1 font-mono text-[.65rem]">
+										{error.technicalDetail}
+									</p>
+								</details>
+							) : null}
+						</div>
+					) : null}
+					{plan ? (
+						<output
+							className="flex items-center gap-2 border-b border-rule bg-paper-2 px-4 py-2 font-mono text-[.62rem] text-teal-2"
+							data-testid="plan-status"
+						>
+							<CheckCircle2 size={14} /> PostgreSQL ·{" "}
+							{plan.analyzed ? "EXPLAIN ANALYZE" : "Estimated plan"} ·{" "}
+							{plan.nodes.length} nodes
+							{plan.hasBuffers ? " · Buffers included" : ""}
+						</output>
+					) : null}
+					<textarea
+						aria-label="PostgreSQL EXPLAIN JSON"
+						value={input}
+						onChange={(event) => setInput(event.target.value)}
+						disabled={!hydrated}
+						placeholder={
+							'Paste EXPLAIN (FORMAT JSON) output here…\n\n[\n  { "Plan": { "Node Type": "Seq Scan", … } }\n]'
+						}
+						spellCheck={false}
+						className="min-h-[13rem] flex-1 resize-none bg-paper p-4 font-mono text-xs leading-relaxed text-ink outline-none placeholder:text-ink-4 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
+						data-testid="plan-input"
+					/>
+					<div className="max-h-[36%] overflow-y-auto border-t border-rule p-3">
+						<div className="flex items-center justify-between">
+							<p className="font-mono text-[.6rem] tracking-widest text-ink-3 uppercase">
+								Examples
+							</p>
+							<BookOpen size={14} className="text-ink-4" />
+						</div>
+						<div className="mt-2 grid grid-cols-2 gap-1.5">
+							{PLAN_EXAMPLES.map((example) => (
+								<button
+									key={example.id}
+									type="button"
+									onClick={() => loadExample(example)}
+									disabled={!hydrated}
+									data-testid={`plan-example-${example.id}`}
+									className="min-h-10 rounded border border-rule px-2 py-1.5 text-left text-[.68rem] leading-tight text-ink-2 hover:border-ink-4 hover:bg-paper-2"
+								>
+									{example.title}
+								</button>
+							))}
+						</div>
+					</div>
+				</section>
+
+				<main
+					data-active={mobilePane === "plan"}
+					className="relative min-w-0 flex-1 data-[active=false]:hidden data-[active=true]:flex data-[active=true]:flex-col md:flex md:flex-col md:data-[active=false]:flex"
+				>
+					{plan && root ? (
+						<>
+							<div
+								className="flex shrink-0 flex-wrap items-center gap-x-5 gap-y-1 border-b border-rule px-4 py-2 text-xs"
+								data-testid="plan-overview"
+							>
+								<strong className="font-mono text-[.64rem] tracking-wide text-teal-2 uppercase">
+									{plan.analyzed ? "Actual execution" : "Estimated plan"}
+								</strong>
+								<span>
+									{plan.analyzed
+										? `Execution ${plan.executionTime !== undefined ? `${formatNumber(plan.executionTime)} ms` : "time unavailable"}`
+										: `Root cost ${root.totalCost ?? "—"}`}
+								</span>
+								{plan.planningTime !== undefined ? (
+									<span>Planning {formatNumber(plan.planningTime)} ms</span>
+								) : null}
+								<span>
+									{plan.analyzed ? "Root actual" : "Root estimated"} rows{" "}
+									{formatNumber(
+										(plan.analyzed ? root.actualRows : root.planRows) ?? 0,
+									)}
+								</span>
+								<span>
+									{plan.nodes.length} nodes · depth {plan.maxDepth}
+								</span>
+								<span>
+									{counts.danger} danger · {counts.warning} warning ·{" "}
+									{counts.info} info
+								</span>
+								<span>
+									{plan.hasBuffers ? "Buffers included" : "No buffer metrics"}
+								</span>
+							</div>
+							<p className="shrink-0 border-b border-rule-soft px-4 py-1.5 text-center text-[.68rem] text-ink-4">
+								Read from the leaves upward to follow how rows are produced for
+								parent operations.
+							</p>
+							<div className="min-h-0 flex-1">
+								{desktop || mobilePane === "plan" ? (
+									<ReactFlow
+										nodes={graph.nodes.map((node) => ({
+											...node,
+											selected:
+												node.id === selected?.id ||
+												node.id === activeFinding?.nodeId,
+										}))}
+										edges={graph.edges}
+										nodeTypes={nodeTypes}
+										nodesDraggable={false}
+										fitView
+										minZoom={0.1}
+										maxZoom={1.6}
+										aria-label="PostgreSQL execution plan tree"
+									>
+										<Background
+											variant={BackgroundVariant.Dots}
+											gap={24}
+											size={1}
+										/>
+										<Controls showInteractive={false} />
+									</ReactFlow>
+								) : null}
+							</div>
+						</>
+					) : (
+						<div
+							className="h-full overflow-y-auto p-5 md:p-8"
+							data-testid="explain-empty-state"
+						>
+							<div className="mx-auto max-w-3xl">
+								<p className="font-mono text-[.65rem] tracking-widest text-accent uppercase">
+									PostgreSQL execution plans
+								</p>
+								<h2 className="mt-2 max-w-2xl font-display text-3xl font-semibold leading-tight">
+									See how PostgreSQL plans—or actually executes—your query.
+								</h2>
+								<p className="mt-3 max-w-2xl text-sm leading-relaxed text-ink-3">
+									Paste JSON produced by PostgreSQL. QueryGraph parses and
+									analyzes it entirely in this browser; it does not execute SQL,
+									connect to a database, or send the plan elsewhere.
+								</p>
+								<div className="mt-6 grid gap-3 md:grid-cols-2">
+									<Command
+										title="Estimated plan"
+										description="Plans without executing the statement. Cost values are planner units, not milliseconds."
+										value={sqlCommand}
+										copied={copied === "estimated"}
+										onCopy={() => copyWithStatus("estimated", sqlCommand)}
+									/>
+									<Command
+										title="Actual runtime + buffers"
+										description={
+											currentSqlMayWrite
+												? "Warning: the current SQL is not a SELECT. ANALYZE will execute it and may modify data."
+												: "Executes the statement and records observed timing, rows, loops, and buffers."
+										}
+										value={
+											currentSql
+												? `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)\n${currentSql.trim()}`
+												: analyzedCommand
+										}
+										copied={copied === "analyzed"}
+										onCopy={() =>
+											copyWithStatus(
+												"analyzed",
+												currentSql
+													? `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)\n${currentSql.trim()}`
+													: analyzedCommand,
+											)
+										}
+									/>
+								</div>
+								<div className="mt-4 flex gap-3 rounded border border-accent/40 bg-accent/10 p-3 text-xs leading-relaxed text-accent-2">
+									<AlertTriangle className="mt-0.5 shrink-0" size={17} />
+									<p>
+										<strong>EXPLAIN ANALYZE executes the statement.</strong>{" "}
+										INSERT, UPDATE, DELETE, and functions with side effects can
+										modify data.
+									</p>
+								</div>
+								<div className="mt-5 flex flex-wrap gap-2">
+									<button
+										type="button"
+										onClick={() => setMobilePane("input")}
+										disabled={!hydrated}
+										className="flex h-10 items-center gap-2 rounded bg-ink px-4 font-mono text-xs text-paper hover:bg-ink-2"
+									>
+										<Clipboard size={15} /> Paste plan
+									</button>
+									<button
+										type="button"
+										onClick={() => loadExample(PLAN_EXAMPLES[1])}
+										disabled={!hydrated}
+										className="flex h-10 items-center gap-2 rounded border border-rule px-4 font-mono text-xs hover:bg-paper-2"
+									>
+										<FileJson size={15} /> Try an example
+									</button>
+								</div>
+								<p className="mt-6 text-xs leading-relaxed text-ink-4">
+									Supported: PostgreSQL EXPLAIN JSON, including ANALYZE,
+									BUFFERS, workers, JIT, and triggers. Not supported: text,
+									YAML, XML, MySQL EXPLAIN, or SQL-only input. Limits:{" "}
+									{PLAN_LIMITS.maxInputBytes / 1_000_000} MB,{" "}
+									{PLAN_LIMITS.maxNodes} nodes, depth {PLAN_LIMITS.maxDepth}.
+								</p>
+							</div>
+						</div>
+					)}
+				</main>
+
+				<section
+					data-active={mobilePane === "findings"}
+					className="w-full overflow-y-auto data-[active=false]:hidden md:block md:w-[21rem] md:border-l md:border-rule md:data-[active=false]:block"
+					data-testid="plan-health"
+					aria-label="Plan Health findings"
+				>
+					<div className="sticky top-0 border-b border-rule bg-paper px-4 py-3">
+						<p className="font-mono text-[.62rem] tracking-widest text-ink-3 uppercase">
+							Plan Health
+						</p>
+						<p className="mt-1 text-xs text-ink-4">
+							{findings.length
+								? `${findings.length} evidence-based finding${findings.length === 1 ? "" : "s"}`
+								: "No high-confidence issues found"}
+						</p>
+					</div>
+					<div className="space-y-2 p-3">
+						{findings.map((item, index) => (
+							<button
+								type="button"
+								key={`${item.ruleId}-${item.nodeId}`}
+								onClick={() => selectFinding(item)}
+								data-testid={`plan-finding-${item.ruleId}`}
+								className="w-full rounded border border-rule p-3 text-left hover:border-ink-4 focus-visible:outline-2 focus-visible:outline-accent"
+							>
+								<div className="flex items-center gap-2">
+									<span
+										className="font-mono text-[.56rem] uppercase"
+										data-severity={item.severity}
+									>
+										{item.severity}
+									</span>
+									<strong className="text-xs">{item.title}</strong>
+								</div>
+								<p className="mt-2 text-xs leading-relaxed text-ink-3">
+									{item.evidence}
+								</p>
+								<p className="mt-2 text-[.68rem] leading-relaxed text-ink-4">
+									Investigate · {item.suggestions[0]}
+								</p>
+								<span className="sr-only">
+									Finding {index + 1} of {findings.length}
+								</span>
+							</button>
+						))}
+						{!plan ? (
+							<div className="py-8 text-center">
+								<Info className="mx-auto text-ink-4" size={20} />
+								<p className="mt-2 text-xs text-ink-4">
+									Load a plan to run deterministic checks.
+								</p>
+							</div>
+						) : null}
+					</div>
+				</section>
+			</div>
+			{selected ? (
+				<PlanDetailsDrawer
+					node={selected}
+					findings={findings.filter((item) => item.nodeId === selected.id)}
+					onClose={() => setSelected(null)}
+				/>
+			) : null}
+		</div>
+	);
+}
+
+function Command({
+	title,
+	description,
+	value,
+	copied,
+	onCopy,
+}: {
+	title: string;
+	description: string;
+	value: string;
+	copied: boolean;
+	onCopy: () => void;
+}) {
+	return (
+		<div className="rounded border border-rule bg-paper-2 p-4">
+			<div className="flex items-center justify-between">
+				<h3 className="font-mono text-xs font-semibold">{title}</h3>
+				<button
+					type="button"
+					onClick={onCopy}
+					aria-label={`Copy ${title} command`}
+					className="flex h-9 items-center gap-1 rounded px-2 font-mono text-[.62rem] hover:bg-paper"
+				>
+					{copied ? <CheckCircle2 size={14} /> : <Copy size={14} />}
+					{copied ? "Copied" : "Copy"}
+				</button>
+			</div>
+			<p className="mt-1 text-xs leading-relaxed text-ink-3">{description}</p>
+			<pre className="mt-3 whitespace-pre-wrap font-mono text-[.68rem] leading-relaxed text-ink-2">
+				{value}
+			</pre>
+		</div>
+	);
+}
+
+export function ExecutionPlanApp() {
+	return (
+		<ReactFlowProvider>
+			<App />
+		</ReactFlowProvider>
+	);
+}

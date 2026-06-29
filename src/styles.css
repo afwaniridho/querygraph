@@ -161,6 +161,43 @@ body {
 		0 8px 24px rgba(184, 84, 42, 0.18);
 }
 
+.react-flow__node.selected .qg-plan-node {
+	border-color: var(--color-accent);
+	box-shadow:
+		0 0 0 1px var(--color-accent),
+		0 8px 24px rgba(184, 84, 42, 0.18);
+}
+
+.qg-plan-node[data-category="scan"] {
+	border-top: 3px solid var(--color-moss);
+}
+.qg-plan-node[data-category="join"] {
+	border-top: 3px solid var(--color-teal);
+}
+.qg-plan-node[data-category="sort"] {
+	border-top: 3px solid var(--color-plum);
+}
+.qg-plan-node[data-category="aggregate"] {
+	border-top: 3px solid var(--color-slate);
+}
+.qg-plan-node[data-category="parallel"] {
+	border-top: 3px solid var(--color-ochre);
+}
+.qg-plan-node[data-category="write"] {
+	border-top: 3px solid var(--color-accent);
+}
+.qg-plan-node[data-severity="danger"] [data-finding-indicator],
+[data-severity="danger"] {
+	color: var(--color-accent-2);
+}
+.qg-plan-node[data-severity="warning"] [data-finding-indicator],
+[data-severity="warning"] {
+	color: #8a5b0a;
+}
+[data-severity="info"] {
+	color: var(--color-teal-2);
+}
+
 .react-flow__handle {
 	opacity: 0;
 	pointer-events: none;
@@ -201,4 +238,15 @@ body {
 @keyframes qg-rise {
 	from { opacity: 0; transform: translateY(12px); }
 	to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		scroll-behavior: auto !important;
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.01ms !important;
+	}
 }

@@ -9,10 +9,16 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as ExplainRouteImport } from './routes/explain'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ShareV2PayloadRouteImport } from './routes/share.v2.$payload'
 import { Route as ShareImageV2PayloadRouteImport } from './routes/share-image.v2.$payload'
 
+const ExplainRoute = ExplainRouteImport.update({
+  id: '/explain',
+  path: '/explain',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -31,36 +37,56 @@ const ShareImageV2PayloadRoute = ShareImageV2PayloadRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/explain': typeof ExplainRoute
   '/share-image/v2/$payload': typeof ShareImageV2PayloadRoute
   '/share/v2/$payload': typeof ShareV2PayloadRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/explain': typeof ExplainRoute
   '/share-image/v2/$payload': typeof ShareImageV2PayloadRoute
   '/share/v2/$payload': typeof ShareV2PayloadRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/explain': typeof ExplainRoute
   '/share-image/v2/$payload': typeof ShareImageV2PayloadRoute
   '/share/v2/$payload': typeof ShareV2PayloadRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/share-image/v2/$payload' | '/share/v2/$payload'
+  fullPaths:
+    | '/'
+    | '/explain'
+    | '/share-image/v2/$payload'
+    | '/share/v2/$payload'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/share-image/v2/$payload' | '/share/v2/$payload'
-  id: '__root__' | '/' | '/share-image/v2/$payload' | '/share/v2/$payload'
+  to: '/' | '/explain' | '/share-image/v2/$payload' | '/share/v2/$payload'
+  id:
+    | '__root__'
+    | '/'
+    | '/explain'
+    | '/share-image/v2/$payload'
+    | '/share/v2/$payload'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ExplainRoute: typeof ExplainRoute
   ShareImageV2PayloadRoute: typeof ShareImageV2PayloadRoute
   ShareV2PayloadRoute: typeof ShareV2PayloadRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/explain': {
+      id: '/explain'
+      path: '/explain'
+      fullPath: '/explain'
+      preLoaderRoute: typeof ExplainRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -87,6 +113,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ExplainRoute: ExplainRoute,
   ShareImageV2PayloadRoute: ShareImageV2PayloadRoute,
   ShareV2PayloadRoute: ShareV2PayloadRoute,
 }
