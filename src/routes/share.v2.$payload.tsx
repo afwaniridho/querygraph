@@ -29,7 +29,7 @@ export const Route = createFileRoute("/share/v2/$payload")({
 	headers: () => ({
 		"Cache-Control": "public, max-age=3600, stale-while-revalidate=86400",
 		"Content-Security-Policy":
-			"default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://cdn.jsdelivr.net ws: wss:; worker-src 'self' blob: https://cdn.jsdelivr.net; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+			"default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net; img-src 'self' data:; connect-src 'self' https://cdn.jsdelivr.net ws: wss:; worker-src 'self' blob: https://cdn.jsdelivr.net; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
 		"Referrer-Policy": "no-referrer",
 		"X-Content-Type-Options": "nosniff",
 		"X-Frame-Options": "DENY",

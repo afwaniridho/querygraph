@@ -102,6 +102,23 @@ test.describe("share pages", () => {
 				}),
 			).toHaveAttribute("data-on", "true");
 			await expect(page.locator(".monaco-editor")).toContainText("invoices");
+
+			const editorLayout = await page.locator(".monaco-editor").evaluate(
+				(editor) => {
+					const overflowGuard = editor.querySelector(".overflow-guard");
+					const lineNumber = editor.querySelector(".line-numbers");
+					const viewLine = editor.querySelector(".view-line");
+					return {
+						overflowGuardPosition: overflowGuard
+							? getComputedStyle(overflowGuard).position
+							: null,
+						lineNumberY: lineNumber?.getBoundingClientRect().y ?? null,
+						viewLineY: viewLine?.getBoundingClientRect().y ?? null,
+					};
+				},
+			);
+			expect(editorLayout.overflowGuardPosition).toBe("relative");
+			expect(editorLayout.lineNumberY).toBe(editorLayout.viewLineY);
 		});
 	}
 
