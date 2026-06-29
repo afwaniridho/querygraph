@@ -1,4 +1,5 @@
 export type PlanSeverity = "info" | "warning" | "danger";
+export type PlanDatabase = "postgresql" | "mysql";
 
 export interface BlockMetrics {
 	hit?: number;
@@ -21,6 +22,7 @@ export interface PlanNode {
 	parentId: string | null;
 	childIds: string[];
 	depth: number;
+	database?: PlanDatabase;
 	nodeType: string;
 	parentRelationship?: string;
 	joinType?: string;
@@ -67,11 +69,33 @@ export interface PlanNode {
 	workersPlanned?: number;
 	workersLaunched?: number;
 	workers: PlanWorker[];
+	tableName?: string;
+	accessType?: string;
+	possibleKeys?: string[];
+	key?: string;
+	usedKeyParts?: string[];
+	keyLength?: string;
+	ref?: string[];
+	rowsExaminedPerScan?: number;
+	rowsProducedPerJoin?: number;
+	filtered?: number;
+	attachedCondition?: string;
+	usingIndex?: boolean;
+	usingTemporaryTable?: boolean;
+	usingFilesort?: boolean;
+	readCost?: number;
+	evalCost?: number;
+	prefixCost?: number;
+	dataReadPerJoin?: string;
+	queryCost?: number;
+	usedColumns?: string[];
+	materializedFromSubquery?: boolean;
+	normalized?: boolean;
 	raw: Record<string, unknown>;
 }
 
 export interface ExecutionPlan {
-	database: "postgresql";
+	database: PlanDatabase;
 	rootId: string;
 	nodes: PlanNode[];
 	nodeById: Record<string, PlanNode>;

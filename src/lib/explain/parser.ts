@@ -145,6 +145,7 @@ export function parsePostgresPlan(
 			parentId: current.parentId,
 			childIds,
 			depth: current.depth,
+			database: "postgresql",
 			nodeType: raw["Node Type"],
 			parentRelationship: text(raw["Parent Relationship"]),
 			joinType: text(raw["Join Type"]),

@@ -1,5 +1,8 @@
+import type { PlanDatabase } from "./types";
+
 export interface PlanExample {
 	id: string;
+	database: PlanDatabase;
 	title: string;
 	objective: string;
 	notice: string;
@@ -14,6 +17,7 @@ const plan = (value: Record<string, unknown>) =>
 export const PLAN_EXAMPLES: PlanExample[] = [
 	{
 		id: "efficient-index",
+		database: "postgresql",
 		title: "Efficient index scan",
 		objective: "See a selective access path without a forced warning.",
 		notice: "Compare the small estimate with actual rows and inspect buffers.",
@@ -43,6 +47,7 @@ export const PLAN_EXAMPLES: PlanExample[] = [
 	},
 	{
 		id: "filtering-loss",
+		database: "postgresql",
 		title: "Heavy filtering",
 		objective: "Investigate a scan that discards most rows.",
 		notice:
@@ -71,6 +76,7 @@ export const PLAN_EXAMPLES: PlanExample[] = [
 	},
 	{
 		id: "misestimate",
+		database: "postgresql",
 		title: "Cardinality misestimate",
 		objective: "See how a large estimate error is reported conservatively.",
 		notice: "Actual and estimated rows are compared per loop.",
@@ -107,6 +113,7 @@ export const PLAN_EXAMPLES: PlanExample[] = [
 	},
 	{
 		id: "nested-loop",
+		database: "postgresql",
 		title: "Repeated nested-loop input",
 		objective: "Find substantial work repeated for an inner operation.",
 		notice:
@@ -149,6 +156,7 @@ export const PLAN_EXAMPLES: PlanExample[] = [
 	},
 	{
 		id: "sort-spill",
+		database: "postgresql",
 		title: "Sort spilling to disk",
 		objective: "Recognize explicit external-sort evidence.",
 		notice: "Disk use is reported from Sort Method and Sort Space Type.",
@@ -183,6 +191,7 @@ export const PLAN_EXAMPLES: PlanExample[] = [
 	},
 	{
 		id: "hash-batches",
+		database: "postgresql",
 		title: "Batched hash",
 		objective: "Inspect a hash operation that needed multiple batches.",
 		notice:
@@ -236,6 +245,7 @@ export const PLAN_EXAMPLES: PlanExample[] = [
 	},
 	{
 		id: "parallel",
+		database: "postgresql",
 		title: "Parallel aggregation",
 		objective: "See worker metadata in a parallel plan.",
 		notice: "Per-worker rows make genuine imbalance analysis possible.",
@@ -290,3 +300,237 @@ export const PLAN_EXAMPLES: PlanExample[] = [
 		}),
 	},
 ];
+
+const mysqlPlan = (value: Record<string, unknown>) =>
+	JSON.stringify(value, null, 2);
+
+export const MYSQL_PLAN_EXAMPLES: PlanExample[] = [
+	{
+		id: "mysql-efficient-keyed-lookup",
+		database: "mysql",
+		title: "Efficient keyed lookup",
+		objective: "See a selective MySQL index lookup without a forced warning.",
+		notice: "Inspect the chosen key, used key parts, and small row estimate.",
+		expectedFindingIds: [],
+		analyzed: false,
+		json: mysqlPlan({
+			query_block: {
+				select_id: 1,
+				cost_info: { query_cost: "1.20" },
+				table: {
+					table_name: "orders",
+					access_type: "const",
+					possible_keys: ["PRIMARY"],
+					key: "PRIMARY",
+					used_key_parts: ["id"],
+					key_length: "8",
+					ref: ["const"],
+					rows_examined_per_scan: 1,
+					rows_produced_per_join: 1,
+					filtered: "100.00",
+					using_index: true,
+					cost_info: {
+						read_cost: "0.10",
+						eval_cost: "0.10",
+						prefix_cost: "0.20",
+						data_read_per_join: "1K",
+					},
+					used_columns: ["id", "customer_id", "total"],
+				},
+			},
+		}),
+	},
+	{
+		id: "mysql-full-scan-filtering",
+		database: "mysql",
+		title: "Full scan with filtering",
+		objective: "Investigate a large MySQL full scan with selective filtering.",
+		notice:
+			"The scan is not automatically wrong; row estimates and filtering are the evidence.",
+		expectedFindingIds: [
+			"mysql-high-full-scan-workload",
+			"mysql-low-filtered-large-scan",
+			"mysql-no-possible-keys-filtered-scan",
+		],
+		analyzed: false,
+		json: mysqlPlan({
+			query_block: {
+				select_id: 1,
+				cost_info: { query_cost: "52200.00" },
+				table: {
+					table_name: "events",
+					access_type: "ALL",
+					possible_keys: [],
+					rows_examined_per_scan: 800000,
+					rows_produced_per_join: 6400,
+					filtered: "0.80",
+					attached_condition: "(`events`.`status` = 'queued')",
+					cost_info: {
+						read_cost: "45000.00",
+						eval_cost: "640.00",
+						prefix_cost: "45640.00",
+						data_read_per_join: "240M",
+					},
+				},
+			},
+		}),
+	},
+	{
+		id: "mysql-nested-loop",
+		database: "mysql",
+		title: "Nested loop join",
+		objective: "Follow MySQL nested-loop input order across table accesses.",
+		notice:
+			"The synthetic Nested Loop node preserves the access order from JSON.",
+		expectedFindingIds: [],
+		analyzed: false,
+		json: mysqlPlan({
+			query_block: {
+				select_id: 1,
+				cost_info: { query_cost: "121.10" },
+				nested_loop: [
+					{
+						table: {
+							table_name: "customers",
+							access_type: "range",
+							possible_keys: ["customers_region_idx"],
+							key: "customers_region_idx",
+							used_key_parts: ["region"],
+							rows_examined_per_scan: 120,
+							rows_produced_per_join: 120,
+							filtered: "100.00",
+						},
+					},
+					{
+						table: {
+							table_name: "orders",
+							access_type: "ref",
+							possible_keys: ["orders_customer_id_idx"],
+							key: "orders_customer_id_idx",
+							used_key_parts: ["customer_id"],
+							ref: ["shop.customers.id"],
+							rows_examined_per_scan: 4,
+							rows_produced_per_join: 480,
+							filtered: "100.00",
+						},
+					},
+				],
+			},
+		}),
+	},
+	{
+		id: "mysql-filesort",
+		database: "mysql",
+		title: "Filesort",
+		objective: "Recognize MySQL filesort wording without implying disk I/O.",
+		notice:
+			"Filesort can be normal; large inputs are the reason to investigate.",
+		expectedFindingIds: ["mysql-filesort"],
+		analyzed: false,
+		json: mysqlPlan({
+			query_block: {
+				select_id: 1,
+				ordering_operation: {
+					using_filesort: true,
+					table: {
+						table_name: "orders",
+						access_type: "ALL",
+						rows_examined_per_scan: 250000,
+						rows_produced_per_join: 250000,
+						filtered: "100.00",
+					},
+				},
+			},
+		}),
+	},
+	{
+		id: "mysql-temporary-grouping",
+		database: "mysql",
+		title: "Temporary grouping",
+		objective:
+			"Inspect GROUP BY-style work where MySQL reports a temporary table.",
+		notice: "Temporary tables are contextual and often normal for grouping.",
+		expectedFindingIds: ["mysql-temporary-table"],
+		analyzed: false,
+		json: mysqlPlan({
+			query_block: {
+				select_id: 1,
+				grouping_operation: {
+					using_temporary_table: true,
+					table: {
+						table_name: "line_items",
+						access_type: "index",
+						key: "line_items_order_id_idx",
+						rows_examined_per_scan: 180000,
+						rows_produced_per_join: 180000,
+						filtered: "100.00",
+					},
+				},
+			},
+		}),
+	},
+	{
+		id: "mysql-materialized-subquery",
+		database: "mysql",
+		title: "Materialized subquery",
+		objective: "Show a materialized subquery as a separate branch.",
+		notice:
+			"Materialization can be useful; the finding asks you to inspect scale.",
+		expectedFindingIds: ["mysql-materialized-subquery"],
+		analyzed: false,
+		json: mysqlPlan({
+			query_block: {
+				select_id: 1,
+				table: {
+					table_name: "<subquery2>",
+					access_type: "ALL",
+					rows_examined_per_scan: 5000,
+					rows_produced_per_join: 5000,
+					filtered: "100.00",
+					materialized_from_subquery: {
+						query_block: {
+							select_id: 2,
+							table: {
+								table_name: "payments",
+								access_type: "range",
+								key: "payments_created_at_idx",
+								rows_examined_per_scan: 5000,
+								rows_produced_per_join: 5000,
+								filtered: "100.00",
+							},
+						},
+					},
+				},
+			},
+		}),
+	},
+	{
+		id: "mysql-possible-keys-not-chosen",
+		database: "mysql",
+		title: "Possible keys not chosen",
+		objective: "Review a large access where MySQL lists keys but chooses none.",
+		notice:
+			"The optimizer may still be correct; this is a prompt to investigate.",
+		expectedFindingIds: ["mysql-possible-keys-not-chosen"],
+		analyzed: false,
+		json: mysqlPlan({
+			query_block: {
+				select_id: 1,
+				cost_info: { query_cost: "18000.00" },
+				table: {
+					table_name: "audit_log",
+					access_type: "ALL",
+					possible_keys: ["audit_log_actor_idx", "audit_log_created_idx"],
+					key: null,
+					rows_examined_per_scan: 300000,
+					rows_produced_per_join: 120000,
+					filtered: "40.00",
+					attached_condition: "(`audit_log`.`actor_id` = 42)",
+					cost_info: { prefix_cost: "16000.00" },
+				},
+			},
+		}),
+	},
+];
+
+export const ALL_PLAN_EXAMPLES = [...PLAN_EXAMPLES, ...MYSQL_PLAN_EXAMPLES];

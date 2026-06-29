@@ -27,8 +27,10 @@ function PlanNodeCardComponent({ data }: NodeProps) {
 				)
 			: undefined;
 	const label =
+		node.tableName ??
 		node.relationName ??
 		node.indexName ??
+		node.key ??
 		node.operation ??
 		node.strategy ??
 		node.parentRelationship;
@@ -64,7 +66,23 @@ function PlanNodeCardComponent({ data }: NodeProps) {
 			</div>
 			<div className="space-y-1 px-3 py-2.5">
 				{label ? <p className="truncate text-xs text-ink-3">{label}</p> : null}
-				{node.actualRows !== undefined ? (
+				{node.database === "mysql" ? (
+					<>
+						<p className="font-mono text-[0.68rem] text-ink-2">
+							Estimated rows:{" "}
+							{formatNumber(
+								node.rowsProducedPerJoin ??
+									node.rowsExaminedPerScan ??
+									node.planRows ??
+									0,
+							)}
+						</p>
+						<p className="font-mono text-[0.58rem] text-ink-4">
+							{node.accessType ? `Access: ${node.accessType}` : "Operation"}
+							{node.key ? ` · Key: ${node.key}` : ""}
+						</p>
+					</>
+				) : node.actualRows !== undefined ? (
 					<>
 						<p className="font-mono text-[0.68rem] text-ink-2">
 							{node.actualTotalTime !== undefined

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PLAN_EXAMPLES } from "../explain/examples";
+import { MYSQL_PLAN_EXAMPLES, PLAN_EXAMPLES } from "../explain/examples";
 import { analyzePlan } from "../explain/health";
 import {
 	estimateRatio,
@@ -7,6 +7,7 @@ import {
 	totalActualRows,
 	totalActualTime,
 } from "../explain/metrics";
+import { parseMysqlPlan } from "../explain/mysql-parser";
 import { parsePostgresPlan } from "../explain/parser";
 import { PlanParseError } from "../explain/types";
 
@@ -16,6 +17,123 @@ const node = (extra: Record<string, unknown> = {}) => ({
 	"Node Type": "Seq Scan",
 	"Plan Rows": 10,
 	...extra,
+});
+
+describe("MySQL EXPLAIN FORMAT=JSON parser", () => {
+	it("parses a query_block root and single table access", () => {
+		const parsed = parseMysqlPlan(
+			JSON.stringify({
+				query_block: {
+					select_id: 1,
+					cost_info: { query_cost: "12.50" },
+					table: {
+						table_name: "orders",
+						access_type: "ref",
+						possible_keys: ["orders_customer_id_idx"],
+						key: "orders_customer_id_idx",
+						used_key_parts: ["customer_id"],
+						key_length: "8",
+						ref: ["const"],
+						rows_examined_per_scan: 3,
+						rows_produced_per_join: 3,
+						filtered: "100.00",
+						attached_condition: "(`orders`.`customer_id` = 7)",
+						using_index: true,
+						cost_info: {
+							read_cost: "1.20",
+							eval_cost: "0.30",
+							prefix_cost: "1.50",
+							data_read_per_join: "2K",
+						},
+						used_columns: ["id", "customer_id"],
+						future_field: { preserved: true },
+					},
+				},
+			}),
+		);
+		expect(parsed.database).toBe("mysql");
+		expect(parsed.nodes.map((item) => item.id)).toEqual(["plan-0", "plan-0-0"]);
+		const table = parsed.nodes[1];
+		expect(table.nodeType).toBe("Ref Lookup");
+		expect(table.tableName).toBe("orders");
+		expect(table.key).toBe("orders_customer_id_idx");
+		expect(table.prefixCost).toBe(1.5);
+		expect(table.raw.future_field).toEqual({ preserved: true });
+	});
+
+	it("parses nested loops and operation wrappers", () => {
+		const parsed = parseMysqlPlan(MYSQL_PLAN_EXAMPLES[2].json);
+		expect(parsed.nodes.map((item) => item.nodeType)).toEqual([
+			"Select #1",
+			"Nested Loop",
+			"Range Scan",
+			"Ref Lookup",
+		]);
+		expect(parsed.nodeById["plan-0-0-1"].parentRelationship).toBe(
+			"inner input 1",
+		);
+		const ordering = parseMysqlPlan(MYSQL_PLAN_EXAMPLES[3].json);
+		expect(ordering.nodes.map((item) => item.nodeType)).toContain(
+			"Ordering Operation",
+		);
+		expect(ordering.nodes.some((item) => item.usingFilesort)).toBe(true);
+		const grouping = parseMysqlPlan(MYSQL_PLAN_EXAMPLES[4].json);
+		expect(grouping.nodes.map((item) => item.nodeType)).toContain(
+			"Grouping Operation",
+		);
+		expect(grouping.nodes.some((item) => item.usingTemporaryTable)).toBe(true);
+	});
+
+	it("parses materialized subqueries", () => {
+		const parsed = parseMysqlPlan(MYSQL_PLAN_EXAMPLES[5].json);
+		expect(parsed.nodes.map((item) => item.nodeType)).toContain(
+			"Materialized Subquery",
+		);
+		expect(parsed.nodes.some((item) => item.materializedFromSubquery)).toBe(
+			true,
+		);
+	});
+
+	it.each([
+		["", "empty"],
+		["{", "invalid-json"],
+		["EXPLAIN SELECT 1", "invalid-json"],
+		[JSON.stringify("-> Table scan on t"), "invalid-structure"],
+		[JSON.stringify([{ Plan: { "Node Type": "Seq Scan" } }]), "missing-plan"],
+		[JSON.stringify({ Plan: { "Node Type": "Seq Scan" } }), "missing-plan"],
+	])("rejects non-MySQL JSON %#", (input, code) => {
+		expect(() => parseMysqlPlan(input)).toThrow(PlanParseError);
+		try {
+			parseMysqlPlan(input);
+		} catch (error) {
+			expect((error as PlanParseError).code).toBe(code);
+		}
+	});
+
+	it("enforces input, depth, and node limits", () => {
+		expect(() =>
+			parseMysqlPlan(
+				JSON.stringify({
+					query_block: { table: { table_name: "t", padding: "x".repeat(100) } },
+				}),
+				{ maxInputBytes: 20, maxNodes: 10, maxDepth: 10 },
+			),
+		).toThrow(/input limit/);
+		expect(() =>
+			parseMysqlPlan(MYSQL_PLAN_EXAMPLES[2].json, {
+				maxInputBytes: 10_000,
+				maxNodes: 2,
+				maxDepth: 10,
+			}),
+		).toThrow(/node limit/);
+		expect(() =>
+			parseMysqlPlan(MYSQL_PLAN_EXAMPLES[5].json, {
+				maxInputBytes: 10_000,
+				maxNodes: 10,
+				maxDepth: 1,
+			}),
+		).toThrow(/maximum depth/);
+	});
 });
 
 describe("PostgreSQL EXPLAIN parser", () => {
@@ -220,5 +338,16 @@ describe("Plan Health", () => {
 		expect(
 			analyzePlan(parsed).some((item) => item.ruleId === "hash-batching"),
 		).toBe(false);
+	});
+
+	it("produces every MySQL example's expected findings", () => {
+		for (const example of MYSQL_PLAN_EXAMPLES) {
+			const ids = analyzePlan(parseMysqlPlan(example.json)).map(
+				(item) => item.ruleId,
+			);
+			for (const expected of example.expectedFindingIds) {
+				expect(ids, example.id).toContain(expected);
+			}
+		}
 	});
 });

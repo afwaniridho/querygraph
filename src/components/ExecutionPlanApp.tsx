@@ -23,13 +23,15 @@ import {
 	RotateCcw,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { PLAN_EXAMPLES, type PlanExample } from "#/lib/explain/examples";
+import { ALL_PLAN_EXAMPLES, type PlanExample } from "#/lib/explain/examples";
 import { nodeCategory } from "#/lib/explain/explain";
 import { analyzePlan } from "#/lib/explain/health";
 import { formatNumber } from "#/lib/explain/metrics";
+import { parseMysqlPlan } from "#/lib/explain/mysql-parser";
 import { PLAN_LIMITS, parsePostgresPlan } from "#/lib/explain/parser";
 import {
 	type ExecutionPlan,
+	type PlanDatabase,
 	type PlanFinding,
 	type PlanNode,
 	PlanParseError,
@@ -39,9 +41,13 @@ import { PlanNodeCard, type PlanNodeData } from "./PlanNodeCard";
 
 const nodeTypes = { plan: PlanNodeCard };
 const CURRENT_SQL_KEY = "querygraph.current-sql";
-const PLAN_INPUT_KEY = "querygraph.explain-input";
-const estimatedCommand = "EXPLAIN (FORMAT JSON)\nSELECT ...;";
-const analyzedCommand = "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)\nSELECT ...;";
+const PLAN_DATABASE_KEY = "querygraph.explain-database";
+const planInputKey = (database: PlanDatabase) =>
+	`querygraph.explain-input.${database}`;
+const postgresEstimatedCommand = "EXPLAIN (FORMAT JSON)\nSELECT ...;";
+const postgresAnalyzedCommand =
+	"EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)\nSELECT ...;";
+const mysqlEstimatedCommand = "EXPLAIN FORMAT=JSON\nSELECT ...;";
 
 function copy(value: string) {
 	return navigator.clipboard?.writeText(value);
@@ -95,10 +101,14 @@ function layout(
 }
 
 function App() {
+	const [database, setDatabase] = useState<PlanDatabase>(() => {
+		if (typeof window === "undefined") return "postgresql";
+		return window.localStorage.getItem(PLAN_DATABASE_KEY) === "mysql"
+			? "mysql"
+			: "postgresql";
+	});
 	const [input, setInput] = useState(() =>
-		typeof window === "undefined"
-			? ""
-			: (window.localStorage.getItem(PLAN_INPUT_KEY) ?? ""),
+		typeof window === "undefined" ? "" : "",
 	);
 	const [plan, setPlan] = useState<ExecutionPlan | null>(null);
 	const [error, setError] = useState<PlanParseError | null>(null);
@@ -117,12 +127,26 @@ function App() {
 	);
 	const { fitView, setCenter } = useReactFlow();
 	const findings = useMemo(() => (plan ? analyzePlan(plan) : []), [plan]);
+	const examples = useMemo(
+		() => ALL_PLAN_EXAMPLES.filter((example) => example.database === database),
+		[database],
+	);
 	const currentSql =
 		typeof window === "undefined"
 			? ""
 			: (window.localStorage.getItem(CURRENT_SQL_KEY) ?? "");
 
 	useEffect(() => setHydrated(true), []);
+
+	useEffect(() => {
+		window.localStorage.setItem(PLAN_DATABASE_KEY, database);
+		setInput(window.localStorage.getItem(planInputKey(database)) ?? "");
+		setPlan(null);
+		setError(null);
+		setSelected(null);
+		setActiveFinding(null);
+		setActiveExample(null);
+	}, [database]);
 
 	useEffect(() => {
 		const media = window.matchMedia("(min-width: 768px)");
@@ -139,10 +163,14 @@ function App() {
 		}
 		const timer = setTimeout(() => {
 			try {
-				setPlan(parsePostgresPlan(input));
+				setPlan(
+					database === "mysql"
+						? parseMysqlPlan(input)
+						: parsePostgresPlan(input),
+				);
 				setError(null);
 				setSelected(null);
-				window.localStorage.setItem(PLAN_INPUT_KEY, input);
+				window.localStorage.setItem(planInputKey(database), input);
 			} catch (nextError) {
 				setPlan(null);
 				setError(
@@ -156,7 +184,7 @@ function App() {
 			}
 		}, 220);
 		return () => clearTimeout(timer);
-	}, [input]);
+	}, [input, database]);
 
 	const openNode = useCallback((node: PlanNode) => {
 		setSelected(node);
@@ -203,7 +231,7 @@ function App() {
 		setSelected(null);
 		setActiveFinding(null);
 		setActiveExample(null);
-		window.localStorage.removeItem(PLAN_INPUT_KEY);
+		window.localStorage.removeItem(planInputKey(database));
 	};
 	const copyWithStatus = async (id: string, value: string) => {
 		try {
@@ -220,11 +248,30 @@ function App() {
 		warning: findings.filter((item) => item.severity === "warning").length,
 		info: findings.filter((item) => item.severity === "info").length,
 	};
-	const sqlCommand = currentSql
-		? `EXPLAIN (FORMAT JSON)\n${currentSql.trim()}`
-		: estimatedCommand;
+	const sqlCommand =
+		database === "mysql"
+			? currentSql
+				? `EXPLAIN FORMAT=JSON\n${currentSql.trim()}`
+				: mysqlEstimatedCommand
+			: currentSql
+				? `EXPLAIN (FORMAT JSON)\n${currentSql.trim()}`
+				: postgresEstimatedCommand;
+	const postgresAnalyzedSql = currentSql
+		? `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)\n${currentSql.trim()}`
+		: postgresAnalyzedCommand;
 	const currentSqlMayWrite =
 		Boolean(currentSql.trim()) && !/^(select|with\s)/i.test(currentSql.trim());
+	const databaseName = database === "mysql" ? "MySQL" : "PostgreSQL";
+	const rootCost =
+		root?.totalCost ?? root?.queryCost ?? root?.prefixCost ?? root?.readCost;
+	const rootRows =
+		database === "mysql"
+			? (root?.rowsProducedPerJoin ??
+				root?.rowsExaminedPerScan ??
+				root?.planRows)
+			: plan?.analyzed
+				? root?.actualRows
+				: root?.planRows;
 
 	return (
 		<div className="flex h-dvh flex-col bg-paper text-ink">
@@ -254,7 +301,8 @@ function App() {
 					</Link>
 				</nav>
 				<div className="ml-auto hidden items-center gap-2 font-mono text-[.62rem] text-ink-4 md:flex">
-					<Database size={13} /> PostgreSQL · processed locally
+					<Database size={13} /> {database === "mysql" ? "MySQL" : "PostgreSQL"}{" "}
+					· processed locally
 				</div>
 			</header>
 
@@ -286,7 +334,7 @@ function App() {
 					<div className="flex items-center justify-between border-b border-rule px-4 py-2">
 						<div>
 							<p className="font-mono text-[.62rem] tracking-widest text-ink-3 uppercase">
-								PostgreSQL JSON
+								{database === "mysql" ? "MySQL JSON" : "PostgreSQL JSON"}
 							</p>
 							<p className="mt-0.5 text-[.68rem] text-ink-4">
 								No upload or database connection
@@ -301,6 +349,29 @@ function App() {
 						>
 							<RotateCcw size={13} /> Clear
 						</button>
+					</div>
+					<div className="border-b border-rule px-4 py-2">
+						<fieldset
+							aria-label="Plan database"
+							className="grid grid-cols-2 rounded border border-rule bg-paper-2 p-0.5"
+						>
+							{(
+								[
+									["postgresql", "PostgreSQL"],
+									["mysql", "MySQL"],
+								] as const
+							).map(([value, label]) => (
+								<button
+									key={value}
+									type="button"
+									onClick={() => setDatabase(value)}
+									data-active={database === value}
+									className="h-8 rounded font-mono text-[.62rem] text-ink-3 data-[active=true]:bg-paper data-[active=true]:text-accent data-[active=true]:shadow-sm"
+								>
+									{label}
+								</button>
+							))}
+						</fieldset>
 					</div>
 					{activeExample ? (
 						<div className="border-b border-rule bg-paper-2 px-4 py-2">
@@ -320,7 +391,9 @@ function App() {
 							<p className="mt-1">
 								Generate compatible output with:{" "}
 								<code className="font-mono">
-									EXPLAIN (FORMAT JSON) SELECT ...;
+									{database === "mysql"
+										? "EXPLAIN FORMAT=JSON SELECT ...;"
+										: "EXPLAIN (FORMAT JSON) SELECT ...;"}
 								</code>
 							</p>
 							{error.technicalDetail ? (
@@ -338,19 +411,30 @@ function App() {
 							className="flex items-center gap-2 border-b border-rule bg-paper-2 px-4 py-2 font-mono text-[.62rem] text-teal-2"
 							data-testid="plan-status"
 						>
-							<CheckCircle2 size={14} /> PostgreSQL ·{" "}
-							{plan.analyzed ? "EXPLAIN ANALYZE" : "Estimated plan"} ·{" "}
-							{plan.nodes.length} nodes
+							<CheckCircle2 size={14} />{" "}
+							{plan.database === "mysql" ? "MySQL" : "PostgreSQL"} ·{" "}
+							{plan.analyzed
+								? plan.database === "mysql"
+									? "Runtime JSON"
+									: "EXPLAIN ANALYZE"
+								: "Estimated plan"}{" "}
+							· {plan.nodes.length} nodes
 							{plan.hasBuffers ? " · Buffers included" : ""}
 						</output>
 					) : null}
 					<textarea
-						aria-label="PostgreSQL EXPLAIN JSON"
+						aria-label={
+							database === "mysql"
+								? "MySQL EXPLAIN JSON"
+								: "PostgreSQL EXPLAIN JSON"
+						}
 						value={input}
 						onChange={(event) => setInput(event.target.value)}
 						disabled={!hydrated}
 						placeholder={
-							'Paste EXPLAIN (FORMAT JSON) output here…\n\n[\n  { "Plan": { "Node Type": "Seq Scan", … } }\n]'
+							database === "mysql"
+								? 'Paste EXPLAIN FORMAT=JSON output here...\n\n{\n  "query_block": { "table": { "table_name": "orders" } }\n}'
+								: 'Paste EXPLAIN (FORMAT JSON) output here...\n\n[\n  { "Plan": { "Node Type": "Seq Scan", ... } }\n]'
 						}
 						spellCheck={false}
 						className="min-h-[13rem] flex-1 resize-none bg-paper p-4 font-mono text-xs leading-relaxed text-ink outline-none placeholder:text-ink-4 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
@@ -364,7 +448,7 @@ function App() {
 							<BookOpen size={14} className="text-ink-4" />
 						</div>
 						<div className="mt-2 grid grid-cols-2 gap-1.5">
-							{PLAN_EXAMPLES.map((example) => (
+							{examples.map((example) => (
 								<button
 									key={example.id}
 									type="button"
@@ -396,16 +480,14 @@ function App() {
 								<span>
 									{plan.analyzed
 										? `Execution ${plan.executionTime !== undefined ? `${formatNumber(plan.executionTime)} ms` : "time unavailable"}`
-										: `Root cost ${root.totalCost ?? "—"}`}
+										: `Root cost ${rootCost ?? "—"}`}
 								</span>
 								{plan.planningTime !== undefined ? (
 									<span>Planning {formatNumber(plan.planningTime)} ms</span>
 								) : null}
 								<span>
 									{plan.analyzed ? "Root actual" : "Root estimated"} rows{" "}
-									{formatNumber(
-										(plan.analyzed ? root.actualRows : root.planRows) ?? 0,
-									)}
+									{formatNumber(rootRows ?? 0)}
 								</span>
 								<span>
 									{plan.nodes.length} nodes · depth {plan.maxDepth}
@@ -437,7 +519,7 @@ function App() {
 										fitView
 										minZoom={0.1}
 										maxZoom={1.6}
-										aria-label="PostgreSQL execution plan tree"
+										aria-label={`${databaseName} execution plan tree`}
 									>
 										<Background
 											variant={BackgroundVariant.Dots}
@@ -456,54 +538,78 @@ function App() {
 						>
 							<div className="mx-auto max-w-3xl">
 								<p className="font-mono text-[.65rem] tracking-widest text-accent uppercase">
-									PostgreSQL execution plans
+									{databaseName} execution plans
 								</p>
 								<h2 className="mt-2 max-w-2xl font-display text-3xl font-semibold leading-tight">
-									See how PostgreSQL plans—or actually executes—your query.
+									{database === "mysql"
+										? "See how MySQL plans your query."
+										: "See how PostgreSQL plans or actually executes your query."}
 								</h2>
 								<p className="mt-3 max-w-2xl text-sm leading-relaxed text-ink-3">
-									Paste JSON produced by PostgreSQL. QueryGraph parses and
+									Paste JSON produced by {databaseName}. QueryGraph parses and
 									analyzes it entirely in this browser; it does not execute SQL,
 									connect to a database, or send the plan elsewhere.
 								</p>
 								<div className="mt-6 grid gap-3 md:grid-cols-2">
 									<Command
-										title="Estimated plan"
-										description="Plans without executing the statement. Cost values are planner units, not milliseconds."
+										title={
+											database === "mysql"
+												? "Estimated MySQL JSON"
+												: "Estimated plan"
+										}
+										description={
+											database === "mysql"
+												? "Plans without executing the statement. Cost values are optimizer estimates, not milliseconds."
+												: "Plans without executing the statement. Cost values are planner units, not milliseconds."
+										}
 										value={sqlCommand}
 										copied={copied === "estimated"}
 										onCopy={() => copyWithStatus("estimated", sqlCommand)}
 									/>
-									<Command
-										title="Actual runtime + buffers"
-										description={
-											currentSqlMayWrite
-												? "Warning: the current SQL is not a SELECT. ANALYZE will execute it and may modify data."
-												: "Executes the statement and records observed timing, rows, loops, and buffers."
-										}
-										value={
-											currentSql
-												? `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)\n${currentSql.trim()}`
-												: analyzedCommand
-										}
-										copied={copied === "analyzed"}
-										onCopy={() =>
-											copyWithStatus(
-												"analyzed",
-												currentSql
-													? `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)\n${currentSql.trim()}`
-													: analyzedCommand,
-											)
-										}
-									/>
+									{database === "postgresql" ? (
+										<Command
+											title="Actual runtime + buffers"
+											description={
+												currentSqlMayWrite
+													? "Warning: the current SQL is not a SELECT. ANALYZE will execute it and may modify data."
+													: "Executes the statement and records observed timing, rows, loops, and buffers."
+											}
+											value={postgresAnalyzedSql}
+											copied={copied === "analyzed"}
+											onCopy={() =>
+												copyWithStatus("analyzed", postgresAnalyzedSql)
+											}
+										/>
+									) : (
+										<Command
+											title="Runtime note"
+											description="MySQL EXPLAIN ANALYZE executes the statement and is commonly TREE output in MySQL 8.0/8.4. Paste JSON only if your MySQL version emits JSON analyze output."
+											value="EXPLAIN ANALYZE output is version-dependent; QueryGraph accepts JSON only."
+											copied={copied === "mysql-runtime-note"}
+											onCopy={() =>
+												copyWithStatus(
+													"mysql-runtime-note",
+													"MySQL EXPLAIN ANALYZE executes the statement and is commonly TREE output in MySQL 8.0/8.4. Paste JSON only if your MySQL version emits JSON analyze output.",
+												)
+											}
+										/>
+									)}
 								</div>
 								<div className="mt-4 flex gap-3 rounded border border-accent/40 bg-accent/10 p-3 text-xs leading-relaxed text-accent-2">
 									<AlertTriangle className="mt-0.5 shrink-0" size={17} />
-									<p>
-										<strong>EXPLAIN ANALYZE executes the statement.</strong>{" "}
-										INSERT, UPDATE, DELETE, and functions with side effects can
-										modify data.
-									</p>
+									{database === "mysql" ? (
+										<p>
+											MySQL estimated JSON is the reliable baseline here.
+											Runtime JSON is accepted only when your MySQL version
+											emits JSON analyze output.
+										</p>
+									) : (
+										<p>
+											<strong>EXPLAIN ANALYZE executes the statement.</strong>{" "}
+											INSERT, UPDATE, DELETE, and functions with side effects
+											can modify data.
+										</p>
+									)}
 								</div>
 								<div className="mt-5 flex flex-wrap gap-2">
 									<button
@@ -516,7 +622,10 @@ function App() {
 									</button>
 									<button
 										type="button"
-										onClick={() => loadExample(PLAN_EXAMPLES[1])}
+										onClick={() => {
+											const example = examples[1] ?? examples[0];
+											if (example) loadExample(example);
+										}}
 										disabled={!hydrated}
 										className="flex h-10 items-center gap-2 rounded border border-rule px-4 font-mono text-xs hover:bg-paper-2"
 									>
@@ -524,10 +633,11 @@ function App() {
 									</button>
 								</div>
 								<p className="mt-6 text-xs leading-relaxed text-ink-4">
-									Supported: PostgreSQL EXPLAIN JSON, including ANALYZE,
-									BUFFERS, workers, JIT, and triggers. Not supported: text,
-									YAML, XML, MySQL EXPLAIN, or SQL-only input. Limits:{" "}
-									{PLAN_LIMITS.maxInputBytes / 1_000_000} MB,{" "}
+									Supported:{" "}
+									{database === "mysql"
+										? "MySQL EXPLAIN FORMAT=JSON query_block output, including nested_loop, operation wrappers, materialized subqueries, and access-path fields. Not supported: tabular EXPLAIN, TREE text, optimizer trace, or SQL-only input."
+										: "PostgreSQL EXPLAIN JSON, including ANALYZE, BUFFERS, workers, JIT, and triggers. Not supported: text, YAML, XML, MySQL EXPLAIN, or SQL-only input."}{" "}
+									Limits: {PLAN_LIMITS.maxInputBytes / 1_000_000} MB,{" "}
 									{PLAN_LIMITS.maxNodes} nodes, depth {PLAN_LIMITS.maxDepth}.
 								</p>
 							</div>

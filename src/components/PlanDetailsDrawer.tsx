@@ -62,6 +62,9 @@ export function PlanDetailsDrawer({
 							{node.relationName}
 						</p>
 					) : null}
+					{node.tableName && !node.relationName ? (
+						<p className="mt-1 text-xs text-ink-3">{node.tableName}</p>
+					) : null}
 				</div>
 				<button
 					ref={closeRef}
@@ -81,26 +84,167 @@ export function PlanDetailsDrawer({
 					<p className="mt-2 text-sm leading-relaxed text-ink-2">
 						{explainNode(node)}
 					</p>
+					{node.normalized ? (
+						<p className="mt-2 text-[0.68rem] leading-relaxed text-ink-4">
+							This node is normalized by QueryGraph to make MySQL's plan
+							structure readable.
+						</p>
+					) : null}
 				</section>
-				<section>
-					<h3 className="font-mono text-[0.65rem] tracking-widest text-ink-3 uppercase">
-						Estimates
-					</h3>
-					<dl className="mt-2">
-						<Row
-							label="Cost (planner units)"
-							value={`${node.startupCost ?? "—"}..${node.totalCost ?? "—"}`}
-						/>
-						<Row label="Rows" value={node.planRows ?? "—"} />
-						<Row
-							label="Width"
-							value={
-								node.planWidth !== undefined ? `${node.planWidth} bytes` : "—"
-							}
-						/>
-					</dl>
-				</section>
-				{node.actualRows !== undefined ? (
+				{node.database === "mysql" ? (
+					<>
+						{node.tableName ||
+						node.accessType ||
+						node.possibleKeys ||
+						node.key ||
+						node.usedKeyParts ||
+						node.attachedCondition ||
+						node.usedColumns ? (
+							<section>
+								<h3 className="font-mono text-[0.65rem] tracking-widest text-ink-3 uppercase">
+									Access path
+								</h3>
+								<dl className="mt-2">
+									{node.tableName ? (
+										<Row label="Table" value={node.tableName} />
+									) : null}
+									{node.accessType ? (
+										<Row label="Access type" value={node.accessType} />
+									) : null}
+									{node.possibleKeys ? (
+										<Row
+											label="Possible keys"
+											value={
+												node.possibleKeys.length
+													? node.possibleKeys.join(", ")
+													: "None"
+											}
+										/>
+									) : null}
+									{node.key ? (
+										<Row label="Chosen key" value={node.key} />
+									) : null}
+									{node.usedKeyParts ? (
+										<Row
+											label="Used key parts"
+											value={node.usedKeyParts.join(", ")}
+										/>
+									) : null}
+									{node.keyLength ? (
+										<Row label="Key length" value={node.keyLength} />
+									) : null}
+									{node.ref ? (
+										<Row label="Ref" value={node.ref.join(", ")} />
+									) : null}
+									{node.attachedCondition ? (
+										<Row
+											label="Attached condition"
+											value={node.attachedCondition}
+										/>
+									) : null}
+									{node.usedColumns ? (
+										<Row
+											label="Used columns"
+											value={node.usedColumns.join(", ")}
+										/>
+									) : null}
+								</dl>
+							</section>
+						) : null}
+						<section>
+							<h3 className="font-mono text-[0.65rem] tracking-widest text-ink-3 uppercase">
+								Estimates
+							</h3>
+							<dl className="mt-2">
+								<Row
+									label="Rows examined per scan"
+									value={
+										node.rowsExaminedPerScan !== undefined
+											? formatNumber(node.rowsExaminedPerScan)
+											: "—"
+									}
+								/>
+								<Row
+									label="Rows produced per join"
+									value={
+										node.rowsProducedPerJoin !== undefined
+											? formatNumber(node.rowsProducedPerJoin)
+											: "—"
+									}
+								/>
+								<Row
+									label="Filtered"
+									value={
+										node.filtered !== undefined
+											? `${formatNumber(node.filtered)}%`
+											: "—"
+									}
+								/>
+								<Row label="Query cost" value={node.queryCost ?? "—"} />
+								<Row label="Read cost" value={node.readCost ?? "—"} />
+								<Row label="Eval cost" value={node.evalCost ?? "—"} />
+								<Row label="Prefix cost" value={node.prefixCost ?? "—"} />
+								<Row
+									label="Data read per join"
+									value={node.dataReadPerJoin ?? "—"}
+								/>
+							</dl>
+						</section>
+						{node.usingFilesort !== undefined ||
+						node.usingTemporaryTable !== undefined ||
+						node.usingIndex !== undefined ||
+						node.materializedFromSubquery ? (
+							<section>
+								<h3 className="font-mono text-[0.65rem] tracking-widest text-ink-3 uppercase">
+									Operations
+								</h3>
+								<dl className="mt-2">
+									{node.usingFilesort !== undefined ? (
+										<Row
+											label="Using filesort"
+											value={node.usingFilesort ? "Yes" : "No"}
+										/>
+									) : null}
+									{node.usingTemporaryTable !== undefined ? (
+										<Row
+											label="Using temporary table"
+											value={node.usingTemporaryTable ? "Yes" : "No"}
+										/>
+									) : null}
+									{node.usingIndex !== undefined ? (
+										<Row
+											label="Using index"
+											value={node.usingIndex ? "Yes" : "No"}
+										/>
+									) : null}
+									{node.materializedFromSubquery ? (
+										<Row label="Materialized subquery" value="Yes" />
+									) : null}
+								</dl>
+							</section>
+						) : null}
+					</>
+				) : (
+					<section>
+						<h3 className="font-mono text-[0.65rem] tracking-widest text-ink-3 uppercase">
+							Estimates
+						</h3>
+						<dl className="mt-2">
+							<Row
+								label="Cost (planner units)"
+								value={`${node.startupCost ?? "—"}..${node.totalCost ?? "—"}`}
+							/>
+							<Row label="Rows" value={node.planRows ?? "—"} />
+							<Row
+								label="Width"
+								value={
+									node.planWidth !== undefined ? `${node.planWidth} bytes` : "—"
+								}
+							/>
+						</dl>
+					</section>
+				)}
+				{node.database !== "mysql" && node.actualRows !== undefined ? (
 					<section>
 						<h3 className="font-mono text-[0.65rem] tracking-widest text-ink-3 uppercase">
 							Runtime
@@ -131,7 +275,7 @@ export function PlanDetailsDrawer({
 						</p>
 					</section>
 				) : null}
-				{ratio !== undefined ? (
+				{node.database !== "mysql" && ratio !== undefined ? (
 					<section>
 						<h3 className="font-mono text-[0.65rem] tracking-widest text-ink-3 uppercase">
 							Estimate quality
@@ -142,11 +286,12 @@ export function PlanDetailsDrawer({
 						</p>
 					</section>
 				) : null}
-				{node.filter ||
-				node.joinFilter ||
-				node.indexCondition ||
-				node.recheckCondition ||
-				node.rowsRemovedByFilter !== undefined ? (
+				{node.database !== "mysql" &&
+				(node.filter ||
+					node.joinFilter ||
+					node.indexCondition ||
+					node.recheckCondition ||
+					node.rowsRemovedByFilter !== undefined) ? (
 					<section>
 						<h3 className="font-mono text-[0.65rem] tracking-widest text-ink-3 uppercase">
 							Filtering
@@ -177,11 +322,12 @@ export function PlanDetailsDrawer({
 						</dl>
 					</section>
 				) : null}
-				{node.shared ||
-				node.local ||
-				node.temp ||
-				node.ioReadTime !== undefined ||
-				node.ioWriteTime !== undefined ? (
+				{node.database !== "mysql" &&
+				(node.shared ||
+					node.local ||
+					node.temp ||
+					node.ioReadTime !== undefined ||
+					node.ioWriteTime !== undefined) ? (
 					<section>
 						<h3 className="font-mono text-[0.65rem] tracking-widest text-ink-3 uppercase">
 							Buffers & I/O
@@ -205,11 +351,12 @@ export function PlanDetailsDrawer({
 						</dl>
 					</section>
 				) : null}
-				{node.sortMethod ||
-				node.hashBatches !== undefined ||
-				node.workers.length ||
-				node.heapFetches !== undefined ||
-				node.joinType ? (
+				{node.database !== "mysql" &&
+				(node.sortMethod ||
+					node.hashBatches !== undefined ||
+					node.workers.length ||
+					node.heapFetches !== undefined ||
+					node.joinType) ? (
 					<section>
 						<h3 className="font-mono text-[0.65rem] tracking-widest text-ink-3 uppercase">
 							Node-specific properties

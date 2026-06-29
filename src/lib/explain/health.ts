@@ -13,6 +13,7 @@ const finding = (
 ): PlanFinding => ({ ...value, nodeId: node.id });
 
 export function analyzePlan(plan: ExecutionPlan): PlanFinding[] {
+	if (plan.database === "mysql") return analyzeMysqlPlan(plan);
 	const results: PlanFinding[] = [];
 	for (const node of plan.nodes) {
 		const ratio = estimateRatio(node);
@@ -242,6 +243,212 @@ export function analyzePlan(plan: ExecutionPlan): PlanFinding[] {
 				confidence: "high",
 			}),
 		);
+	}
+	const rank = { danger: 0, warning: 1, info: 2 };
+	return results.sort(
+		(a, b) =>
+			rank[a.severity] - rank[b.severity] ||
+			a.ruleId.localeCompare(b.ruleId) ||
+			a.nodeId.localeCompare(b.nodeId),
+	);
+}
+
+function estimatedWork(node: PlanNode): number {
+	return Math.max(node.rowsExaminedPerScan ?? 0, node.rowsProducedPerJoin ?? 0);
+}
+
+function isLargeMysqlWork(node: PlanNode): boolean {
+	return estimatedWork(node) >= 100_000;
+}
+
+function mysqlEvidence(node: PlanNode): string {
+	const parts = [];
+	if (node.rowsExaminedPerScan !== undefined) {
+		parts.push(
+			`${formatNumber(node.rowsExaminedPerScan)} rows examined per scan`,
+		);
+	}
+	if (node.rowsProducedPerJoin !== undefined) {
+		parts.push(
+			`${formatNumber(node.rowsProducedPerJoin)} rows produced per join`,
+		);
+	}
+	if (node.filtered !== undefined) {
+		parts.push(`${formatNumber(node.filtered)}% filtered`);
+	}
+	return parts.join(" · ") || "MySQL JSON fields on this plan node.";
+}
+
+function analyzeMysqlPlan(plan: ExecutionPlan): PlanFinding[] {
+	const results: PlanFinding[] = [];
+	const rootCost = plan.nodes
+		.map((node) => node.queryCost)
+		.find((value): value is number => value !== undefined && value > 0);
+	for (const node of plan.nodes) {
+		const work = estimatedWork(node);
+		const largeWork = isLargeMysqlWork(node);
+		if (node.accessType === "ALL" && largeWork) {
+			results.push(
+				finding(node, {
+					ruleId: "mysql-high-full-scan-workload",
+					severity:
+						work >= 1_000_000 ||
+						(node.attachedCondition && (node.filtered ?? 100) <= 25)
+							? "warning"
+							: "info",
+					title: "High full-scan workload",
+					evidence: `access_type=ALL · ${mysqlEvidence(node)}.`,
+					explanation:
+						"This table access is a full scan over a large estimated workload. That can be correct when much of the table is needed, but it is worth reviewing for frequent queries.",
+					suggestions: [
+						"Compare the estimated scan size with table size and query frequency.",
+						"Check whether selective predicates can use an existing access path.",
+						"Confirm with MySQL EXPLAIN/ANALYZE and workload data.",
+					],
+					requiresActual: false,
+					confidence: "medium",
+				}),
+			);
+		}
+		if (node.filtered !== undefined && node.filtered <= 10 && largeWork) {
+			results.push(
+				finding(node, {
+					ruleId: "mysql-low-filtered-large-scan",
+					severity: "warning",
+					title: "Low filtered percentage on large scan",
+					evidence: `MySQL estimates ${formatNumber(node.rowsExaminedPerScan ?? work)} rows examined per scan and ${formatNumber(node.filtered)}% passed the table condition.`,
+					explanation:
+						"The plan estimates that a small share of a large scanned input passes the table condition.",
+					suggestions: [
+						"Check whether predicates are selective.",
+						"Check whether an existing index can support the condition.",
+						"Confirm with production statistics and real workload.",
+					],
+					requiresActual: false,
+					confidence: "medium",
+				}),
+			);
+		}
+		if (node.usingFilesort) {
+			results.push(
+				finding(node, {
+					ruleId: "mysql-filesort",
+					severity: largeWork ? "warning" : "info",
+					title: "Filesort reported",
+					evidence: `using_filesort=true${work ? ` · ${mysqlEvidence(node)}` : ""}.`,
+					explanation:
+						"MySQL reports filesort for this ordering step. Filesort is not always disk I/O, but it can become expensive for large inputs.",
+					suggestions: [
+						"Check whether the ORDER BY can be satisfied by the chosen access path.",
+						"Review the estimated input size before changing indexes or query shape.",
+					],
+					requiresActual: false,
+					confidence: "high",
+				}),
+			);
+		}
+		if (node.usingTemporaryTable) {
+			results.push(
+				finding(node, {
+					ruleId: "mysql-temporary-table",
+					severity: largeWork ? "warning" : "info",
+					title: "Temporary table reported",
+					evidence: `using_temporary_table=true${work ? ` · ${mysqlEvidence(node)}` : ""}.`,
+					explanation:
+						"MySQL reports a temporary table for this operation. This can be normal for GROUP BY, DISTINCT, or complex ordering, but large intermediate results are worth checking.",
+					suggestions: [
+						"Inspect GROUP BY, DISTINCT, and ORDER BY clauses for this operation.",
+						"Confirm whether the intermediate result is large in production.",
+					],
+					requiresActual: false,
+					confidence: "high",
+				}),
+			);
+		}
+		if ((node.possibleKeys?.length ?? 0) > 0 && !node.key && largeWork) {
+			results.push(
+				finding(node, {
+					ruleId: "mysql-possible-keys-not-chosen",
+					severity: "info",
+					title: "Possible keys not chosen",
+					evidence: `possible_keys=${node.possibleKeys?.join(", ")} · key not chosen · ${mysqlEvidence(node)}.`,
+					explanation:
+						"MySQL lists possible keys but did not choose one for this table access.",
+					suggestions: [
+						"Compare predicate selectivity with the available keys.",
+						"Check statistics freshness and whether the optimizer expects a scan to be cheaper.",
+					],
+					requiresActual: false,
+					confidence: "medium",
+				}),
+			);
+		}
+		if (
+			(!node.possibleKeys || node.possibleKeys.length === 0) &&
+			node.attachedCondition &&
+			largeWork &&
+			(node.filtered ?? 100) <= 10
+		) {
+			results.push(
+				finding(node, {
+					ruleId: "mysql-no-possible-keys-filtered-scan",
+					severity: "warning",
+					title: "No possible keys for filtered scan",
+					evidence: `No possible_keys · ${mysqlEvidence(node)} · attached_condition present.`,
+					explanation:
+						"The plan shows a large filtered scan and no possible keys for this table access. An index may be worth investigating if this query is frequent and selective.",
+					suggestions: [
+						"Confirm that the condition is selective for production data.",
+						"Review whether an existing index can support the filtered columns.",
+						"Avoid adding index DDL until workload frequency and write cost are clear.",
+					],
+					requiresActual: false,
+					confidence: "medium",
+				}),
+			);
+		}
+		if (
+			rootCost !== undefined &&
+			node.prefixCost !== undefined &&
+			node.prefixCost >= rootCost * 0.5 &&
+			node.id !== plan.rootId
+		) {
+			results.push(
+				finding(node, {
+					ruleId: "mysql-large-prefix-cost-share",
+					severity: "info",
+					title: "Large share of estimated cost",
+					evidence: `prefix_cost=${formatNumber(node.prefixCost)} of root query_cost=${formatNumber(rootCost)}.`,
+					explanation:
+						"This access accounts for a large share of the estimated query cost.",
+					suggestions: [
+						"Inspect whether this access path dominates the plan cost.",
+						"Validate the estimate with MySQL statistics and representative workload data.",
+					],
+					requiresActual: false,
+					confidence: "medium",
+				}),
+			);
+		}
+		if (node.materializedFromSubquery) {
+			results.push(
+				finding(node, {
+					ruleId: "mysql-materialized-subquery",
+					severity: "info",
+					title: "Materialized subquery",
+					evidence:
+						"materialized_from_subquery is present on this table access.",
+					explanation:
+						"MySQL materializes this subquery. That can be useful, but large materialized results can add memory or temporary-table work.",
+					suggestions: [
+						"Check the estimated rows produced by the subquery.",
+						"Confirm whether materialization is repeated or materially expensive for the workload.",
+					],
+					requiresActual: false,
+					confidence: "high",
+				}),
+			);
+		}
 	}
 	const rank = { danger: 0, warning: 1, info: 2 };
 	return results.sort(
