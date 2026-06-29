@@ -24,6 +24,9 @@ export const Route = createRootRoute({
 		],
 		links: [
 			{ rel: "stylesheet", href: appCss },
+			{ rel: "icon", href: "/favicon.ico", sizes: "64x64" },
+			{ rel: "apple-touch-icon", href: "/logo192.png" },
+			{ rel: "manifest", href: "/manifest.json" },
 			{ rel: "preconnect", href: "https://fonts.googleapis.com" },
 			{
 				rel: "preconnect",

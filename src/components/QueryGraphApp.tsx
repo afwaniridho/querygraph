@@ -696,21 +696,17 @@ function GraphStage() {
 		<NodeActionsContext.Provider value={nodeActions}>
 			<div className="flex h-dvh w-full flex-col bg-paper">
 				<header className="flex shrink-0 items-center gap-3 border-b border-rule px-4 py-2.5">
-					<div className="flex items-center gap-2.5">
-						<span
-							className="flex h-7 w-7 items-center justify-center rounded-sm text-paper"
-							style={{ background: "var(--color-accent)" }}
-						>
-							<GitBranch size={16} strokeWidth={2.5} />
-						</span>
-						<div className="leading-none">
-							<h1 className="font-display text-[1.05rem] font-semibold tracking-tight text-ink">
-								QueryGraph
-							</h1>
-							<p className="mt-0.5 font-mono text-[0.625rem] tracking-wide text-ink-4 uppercase">
-								Read SQL like a flowchart
-							</p>
-						</div>
+					<div className="flex shrink-0 items-center gap-2.5">
+						<img
+							src="/logo192.png"
+							alt=""
+							className="h-9 w-9 object-contain"
+							width={36}
+							height={36}
+						/>
+						<h1 className="font-display text-[1.3rem] font-semibold leading-none tracking-[-0.035em] text-ink">
+							QueryGraph
+						</h1>
 					</div>
 					<div className="ml-auto flex items-center gap-1">
 						<button
