@@ -14,6 +14,7 @@ import {
 	useReactFlow,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+import { Link as RouterLink } from "@tanstack/react-router";
 import {
 	BookOpen,
 	Check,
@@ -66,6 +67,7 @@ const edgeTypes = { recursive: RecursiveEdge };
 const DEBOUNCE_MS = 280;
 const CLOSE_MS = 200;
 const SHARE_RESET_MS = 1800;
+const CURRENT_SQL_KEY = "querygraph.current-sql";
 
 function readStoredDialect(): Dialect {
 	if (typeof window === "undefined") return "postgres";
@@ -371,6 +373,9 @@ function GraphStage({
 			const next = value ?? "";
 			if (suppressProgrammaticChangeRef.current) return;
 			setSqlText(next);
+			if (typeof window !== "undefined") {
+				window.localStorage.setItem(CURRENT_SQL_KEY, next);
+			}
 			setSqlByDialect((prev) =>
 				prev[dialect] === next ? prev : { ...prev, [dialect]: next },
 			);
@@ -770,9 +775,27 @@ function GraphStage({
 						<h1 className="font-display text-[1.3rem] font-semibold leading-none tracking-[-0.035em] text-ink">
 							QueryGraph
 						</h1>
-						<p className="hidden text-xs text-ink-4 sm:block">
+						<p className="hidden text-xs text-ink-4 xl:block">
 							Read SQL like a flowchart
 						</p>
+						<nav
+							aria-label="Product mode"
+							className="ml-1 flex rounded border border-rule bg-paper-2 p-0.5"
+						>
+							<RouterLink
+								to="/"
+								aria-current="page"
+								className="rounded bg-paper px-2.5 py-1.5 font-mono text-[0.65rem] text-accent shadow-sm"
+							>
+								Query Logic
+							</RouterLink>
+							<RouterLink
+								to="/explain"
+								className="rounded px-2.5 py-1.5 font-mono text-[0.65rem] text-ink-3 hover:text-ink"
+							>
+								Execution Plan
+							</RouterLink>
+						</nav>
 					</div>
 					<div className="ml-auto flex items-center gap-1">
 						<button
