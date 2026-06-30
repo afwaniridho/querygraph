@@ -15,6 +15,9 @@ import {
 	AlertTriangle,
 	BookOpen,
 	CheckCircle2,
+	ChevronDown,
+	ChevronUp,
+	CircleHelp,
 	Clipboard,
 	Copy,
 	Database,
@@ -23,6 +26,7 @@ import {
 	RotateCcw,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { AboutModal } from "#/components/AboutModal";
 import {
 	type PlanBottleneckItem,
 	rankPlanBottlenecks,
@@ -45,6 +49,7 @@ import { PlanDetailsDrawer } from "./PlanDetailsDrawer";
 import { PlanNodeCard, type PlanNodeData } from "./PlanNodeCard";
 
 const nodeTypes = { plan: PlanNodeCard };
+const CLOSE_MS = 200;
 const CURRENT_SQL_KEY = "querygraph.current-sql";
 const PLAN_DATABASE_KEY = "querygraph.explain-database";
 const planInputKey = (database: PlanDatabase) =>
@@ -122,8 +127,11 @@ function App() {
 	const [mobilePane, setMobilePane] = useState<"input" | "plan" | "findings">(
 		"input",
 	);
+	const [examplesOpen, setExamplesOpen] = useState(true);
 	const [activeExample, setActiveExample] = useState<PlanExample | null>(null);
 	const [copied, setCopied] = useState<string | null>(null);
+	const [aboutOpen, setAboutOpen] = useState(false);
+	const [aboutClosing, setAboutClosing] = useState(false);
 	const [hydrated, setHydrated] = useState(false);
 	const [desktop, setDesktop] = useState(() =>
 		typeof window === "undefined"
@@ -257,6 +265,13 @@ function App() {
 		setActiveExample(example);
 		setMobilePane("plan");
 	};
+	const closeAbout = useCallback(() => {
+		setAboutClosing(true);
+		setTimeout(() => {
+			setAboutOpen(false);
+			setAboutClosing(false);
+		}, CLOSE_MS);
+	}, []);
 	const clear = () => {
 		setInput("");
 		setPlan(null);
@@ -307,35 +322,59 @@ function App() {
 				: root?.planRows;
 
 	return (
-		<div className="flex h-dvh flex-col bg-paper text-ink">
-			<header className="flex shrink-0 items-center gap-3 border-b border-rule px-3 py-2.5 md:px-4">
-				<div className="flex items-center gap-2.5">
-					<img src="/logo192.png" alt="" className="h-9 w-9" />
-					<h1 className="hidden font-display text-[1.3rem] font-semibold tracking-[-.035em] sm:block">
+		<div className="flex h-dvh min-w-0 flex-col overflow-hidden bg-paper text-ink">
+			<header className="flex shrink-0 flex-wrap items-center gap-2 border-b border-rule px-2.5 py-2 md:flex-nowrap md:gap-3 md:px-4 md:py-2.5">
+				<div className="flex min-w-0 flex-1 items-center gap-2 md:shrink-0 md:gap-2.5">
+					<img
+						src="/logo192.png"
+						alt=""
+						className="h-8 w-8 shrink-0 object-contain md:h-9 md:w-9"
+						width={36}
+						height={36}
+					/>
+					<h1 className="sr-only sm:not-sr-only sm:font-display sm:text-[1.3rem] sm:leading-none sm:font-semibold sm:tracking-[-0.035em] sm:text-ink">
 						QueryGraph
 					</h1>
+					<p className="hidden text-xs text-ink-4 xl:block">
+						Read SQL like a flowchart
+					</p>
+					<nav
+						aria-label="Product mode"
+						className="ml-0 flex min-w-0 rounded border border-rule bg-paper-2 p-0.5 sm:ml-1"
+					>
+						<Link
+							to="/"
+							className="rounded px-2 py-2 font-mono text-[0.6rem] whitespace-nowrap text-ink-3 hover:text-ink sm:px-2.5 md:py-1.5 md:text-[0.65rem]"
+						>
+							Query Logic
+						</Link>
+						<Link
+							to="/explain"
+							className="rounded bg-paper px-2 py-2 font-mono text-[0.6rem] whitespace-nowrap text-accent shadow-sm sm:px-2.5 md:py-1.5 md:text-[0.65rem]"
+							aria-current="page"
+						>
+							Execution Plan
+						</Link>
+					</nav>
 				</div>
-				<nav
-					aria-label="Product mode"
-					className="flex rounded border border-rule bg-paper-2 p-0.5"
-				>
-					<Link
-						to="/"
-						className="rounded px-2.5 py-1.5 font-mono text-[.65rem] text-ink-3 hover:text-ink"
+				<div className="ml-auto flex shrink-0 items-center gap-2 md:gap-3">
+					<div className="hidden items-center gap-2 font-mono text-[.62rem] text-ink-4 md:flex">
+						<Database size={13} />{" "}
+						{database === "mysql" ? "MySQL" : "PostgreSQL"} · processed locally
+					</div>
+					<button
+						type="button"
+						onClick={() => {
+							setAboutClosing(false);
+							setAboutOpen(true);
+						}}
+						title="About"
+						aria-label="About"
+						className="flex h-10 items-center gap-1.5 rounded px-2 font-mono text-[0.75rem] text-ink-2 transition hover:bg-paper-2 hover:text-ink md:h-9 md:px-3"
 					>
-						Query Logic
-					</Link>
-					<Link
-						to="/explain"
-						className="rounded bg-paper px-2.5 py-1.5 font-mono text-[.65rem] text-accent shadow-sm"
-						aria-current="page"
-					>
-						Execution Plan
-					</Link>
-				</nav>
-				<div className="ml-auto hidden items-center gap-2 font-mono text-[.62rem] text-ink-4 md:flex">
-					<Database size={13} /> {database === "mysql" ? "MySQL" : "PostgreSQL"}{" "}
-					· processed locally
+						<CircleHelp size={15} />
+						<span className="hidden sm:inline">About</span>
+					</button>
 				</div>
 			</header>
 
@@ -351,7 +390,7 @@ function App() {
 						data-active={mobilePane === pane}
 						className="h-11 border-r border-rule font-mono text-[.65rem] tracking-wide uppercase data-[active=true]:bg-paper-2 data-[active=true]:text-accent"
 					>
-						{pane === "findings" ? "triage" : pane}
+						{pane}
 						{pane === "findings" && (findings.length || bottleneckCount)
 							? ` (${bottleneckCount + findings.length})`
 							: ""}
@@ -359,13 +398,13 @@ function App() {
 				))}
 			</nav>
 
-			<div className="flex min-h-0 flex-1">
+			<div className="flex min-h-0 flex-1 overflow-hidden">
 				<section
 					data-active={mobilePane === "input"}
 					className="flex w-full flex-col border-r border-rule data-[active=false]:hidden md:flex md:w-[34%] md:max-w-[29rem] md:data-[active=false]:flex"
 				>
-					<div className="flex items-center justify-between border-b border-rule px-4 py-2">
-						<div>
+					<div className="flex items-center justify-between gap-3 border-b border-rule px-3 py-2 sm:px-4">
+						<div className="min-w-0">
 							<p className="font-mono text-[.62rem] tracking-widest text-ink-3 uppercase">
 								{database === "mysql" ? "MySQL JSON" : "PostgreSQL JSON"}
 							</p>
@@ -377,13 +416,13 @@ function App() {
 							type="button"
 							onClick={clear}
 							disabled={!hydrated}
-							className="flex h-9 items-center gap-1.5 rounded px-2 font-mono text-[.62rem] text-ink-3 hover:bg-paper-2"
+							className="flex h-9 shrink-0 items-center gap-1.5 rounded px-2 font-mono text-[.62rem] text-ink-3 hover:bg-paper-2"
 							data-testid="clear-plan"
 						>
 							<RotateCcw size={13} /> Clear
 						</button>
 					</div>
-					<div className="border-b border-rule px-4 py-2">
+					<div className="border-b border-rule px-3 py-2 sm:px-4">
 						<fieldset
 							aria-label="Plan database"
 							className="grid grid-cols-2 rounded border border-rule bg-paper-2 p-0.5"
@@ -398,8 +437,9 @@ function App() {
 									key={value}
 									type="button"
 									onClick={() => setDatabase(value)}
+									disabled={!hydrated}
 									data-active={database === value}
-									className="h-8 rounded font-mono text-[.62rem] text-ink-3 data-[active=true]:bg-paper data-[active=true]:text-accent data-[active=true]:shadow-sm"
+									className="h-8 rounded font-mono text-[.62rem] text-ink-3 disabled:cursor-wait disabled:opacity-60 data-[active=true]:bg-paper data-[active=true]:text-accent data-[active=true]:shadow-sm"
 								>
 									{label}
 								</button>
@@ -470,30 +510,55 @@ function App() {
 								: 'Paste EXPLAIN (FORMAT JSON) output here...\n\n[\n  { "Plan": { "Node Type": "Seq Scan", ... } }\n]'
 						}
 						spellCheck={false}
-						className="min-h-[13rem] flex-1 resize-none bg-paper p-4 font-mono text-xs leading-relaxed text-ink outline-none placeholder:text-ink-4 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
+						className="min-h-[12rem] flex-1 resize-none bg-paper p-3 font-mono text-xs leading-relaxed text-ink outline-none placeholder:text-ink-4 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent sm:p-4 md:min-h-[13rem]"
 						data-testid="plan-input"
 					/>
-					<div className="max-h-[36%] overflow-y-auto border-t border-rule p-3">
-						<div className="flex items-center justify-between">
-							<p className="font-mono text-[.6rem] tracking-widest text-ink-3 uppercase">
-								Examples
-							</p>
-							<BookOpen size={14} className="text-ink-4" />
-						</div>
-						<div className="mt-2 grid grid-cols-2 gap-1.5">
-							{examples.map((example) => (
-								<button
-									key={example.id}
-									type="button"
-									onClick={() => loadExample(example)}
-									disabled={!hydrated}
-									data-testid={`plan-example-${example.id}`}
-									className="min-h-10 rounded border border-rule px-2 py-1.5 text-left text-[.68rem] leading-tight text-ink-2 hover:border-ink-4 hover:bg-paper-2"
-								>
-									{example.title}
-								</button>
-							))}
-						</div>
+					<div
+						data-open={examplesOpen}
+						className="max-h-14 shrink-0 overflow-hidden border-t border-rule bg-paper transition-[max-height] duration-200 data-[open=true]:max-h-[30dvh] data-[open=true]:overflow-y-auto md:max-h-14 md:data-[open=true]:max-h-[36%] md:data-[open=true]:overflow-y-auto"
+					>
+						<button
+							type="button"
+							onClick={() => setExamplesOpen((open) => !open)}
+							disabled={!hydrated}
+							aria-expanded={examplesOpen}
+							aria-controls="plan-examples-list"
+							className="flex h-14 w-full items-center justify-between gap-3 px-3 text-left disabled:cursor-wait disabled:opacity-60 md:px-3"
+						>
+							<span className="flex min-w-0 items-center gap-2">
+								<BookOpen size={14} className="shrink-0 text-ink-4" />
+								<span className="font-mono text-[.6rem] tracking-widest text-ink-3 uppercase">
+									Examples
+								</span>
+							</span>
+							<span className="flex items-center gap-1.5 font-mono text-[.58rem] text-ink-4 uppercase">
+								{examplesOpen ? "Hide" : "Show"}
+								{examplesOpen ? (
+									<ChevronDown size={14} />
+								) : (
+									<ChevronUp size={14} />
+								)}
+							</span>
+						</button>
+						{examplesOpen ? (
+							<div
+								id="plan-examples-list"
+								className="grid grid-cols-1 gap-1.5 px-3 pb-3 min-[420px]:grid-cols-2 md:mt-2"
+							>
+								{examples.map((example) => (
+									<button
+										key={example.id}
+										type="button"
+										onClick={() => loadExample(example)}
+										disabled={!hydrated}
+										data-testid={`plan-example-${example.id}`}
+										className="min-h-10 rounded border border-rule px-2 py-1.5 text-left text-[.68rem] leading-tight text-ink-2 hover:border-ink-4 hover:bg-paper-2"
+									>
+										{example.title}
+									</button>
+								))}
+							</div>
+						) : null}
 					</div>
 				</section>
 
@@ -504,7 +569,7 @@ function App() {
 					{plan && root ? (
 						<>
 							<div
-								className="flex shrink-0 flex-wrap items-center gap-x-5 gap-y-1 border-b border-rule px-4 py-2 text-xs"
+								className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 border-b border-rule px-3 py-2 text-[0.7rem] sm:px-4 sm:text-xs"
 								data-testid="plan-overview"
 							>
 								<strong className="font-mono text-[.64rem] tracking-wide text-teal-2 uppercase">
@@ -533,7 +598,7 @@ function App() {
 									{plan.hasBuffers ? "Buffers included" : "No buffer metrics"}
 								</span>
 							</div>
-							<p className="shrink-0 border-b border-rule-soft px-4 py-1.5 text-center text-[.68rem] text-ink-4">
+							<p className="shrink-0 border-b border-rule-soft px-3 py-1.5 text-center text-[.65rem] leading-snug text-ink-4 sm:px-4 sm:text-[.68rem]">
 								Read from the leaves upward to follow how rows are produced for
 								parent operations.
 							</p>
@@ -566,14 +631,14 @@ function App() {
 						</>
 					) : (
 						<div
-							className="h-full overflow-y-auto p-5 md:p-8"
+							className="h-full overflow-y-auto p-4 sm:p-5 md:p-8"
 							data-testid="explain-empty-state"
 						>
 							<div className="mx-auto max-w-3xl">
 								<p className="font-mono text-[.65rem] tracking-widest text-accent uppercase">
 									{databaseName} execution plans
 								</p>
-								<h2 className="mt-2 max-w-2xl font-display text-3xl font-semibold leading-tight">
+								<h2 className="mt-2 max-w-2xl font-display text-2xl font-semibold leading-tight sm:text-3xl">
 									{database === "mysql"
 										? "See how MySQL plans your query."
 										: "See how PostgreSQL plans or actually executes your query."}
@@ -644,7 +709,7 @@ function App() {
 										</p>
 									)}
 								</div>
-								<div className="mt-5 flex flex-wrap gap-2">
+								<div className="mt-5 flex flex-col gap-2 min-[420px]:flex-row min-[420px]:flex-wrap">
 									<button
 										type="button"
 										onClick={() => setMobilePane("input")}
@@ -763,6 +828,7 @@ function App() {
 					onClose={() => setSelected(null)}
 				/>
 			) : null}
+			{aboutOpen && <AboutModal closing={aboutClosing} onClose={closeAbout} />}
 		</div>
 	);
 }

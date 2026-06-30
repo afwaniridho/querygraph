@@ -15,17 +15,17 @@ export function ExamplesGallery({ onClose, onSelect }: Props) {
 			aria-labelledby="examples-title"
 			data-testid="examples-gallery"
 		>
-			<div className="flex max-h-[88dvh] w-full max-w-4xl flex-col rounded-t-lg border border-rule bg-paper shadow-2xl md:rounded-lg">
-				<header className="flex items-start gap-3 border-b border-rule px-5 py-4">
-					<BookOpen className="mt-0.5 text-accent" size={19} />
-					<div>
+			<div className="flex max-h-[92dvh] w-full max-w-4xl flex-col rounded-t-lg border border-rule bg-paper shadow-2xl md:max-h-[88dvh] md:rounded-lg">
+				<header className="flex items-start gap-3 border-b border-rule px-4 py-3 sm:px-5 sm:py-4">
+					<BookOpen className="mt-0.5 shrink-0 text-accent" size={19} />
+					<div className="min-w-0 flex-1">
 						<h2
 							id="examples-title"
-							className="font-display text-xl font-semibold"
+							className="font-display text-lg font-semibold sm:text-xl"
 						>
 							SQL Example Gallery
 						</h2>
-						<p className="mt-1 text-sm text-ink-3">
+						<p className="mt-1 text-xs leading-relaxed text-ink-3 sm:text-sm">
 							Choose a clinic case to replace the current SQL, dialect, and
 							optional schema.
 						</p>
@@ -39,23 +39,23 @@ export function ExamplesGallery({ onClose, onSelect }: Props) {
 						<X size={18} />
 					</button>
 				</header>
-				<div className="grid min-h-0 flex-1 gap-3 overflow-y-auto p-4 sm:grid-cols-2 lg:grid-cols-3">
+				<div className="grid min-h-0 flex-1 gap-2 overflow-y-auto p-3 sm:grid-cols-2 sm:gap-3 sm:p-4 lg:grid-cols-3">
 					{SQL_EXAMPLES.map((example) => (
 						<button
 							key={example.id}
 							type="button"
 							data-testid={`example-${example.id}`}
 							onClick={() => onSelect(example)}
-							className="group rounded border border-rule bg-paper p-4 text-left transition hover:-translate-y-0.5 hover:border-accent hover:shadow-md"
+							className="group rounded border border-rule bg-paper p-3 text-left transition hover:-translate-y-0.5 hover:border-accent hover:shadow-md sm:p-4"
 						>
 							<div className="flex items-center justify-between gap-2 font-mono text-[0.6rem] tracking-wide uppercase">
 								<span className="text-accent">{example.category}</span>
 								<span className="text-ink-4">{example.dialect}</span>
 							</div>
-							<h3 className="mt-2 font-display text-base font-semibold text-ink group-hover:text-accent-2">
+							<h3 className="mt-2 font-display text-sm font-semibold text-ink group-hover:text-accent-2 sm:text-base">
 								{example.title}
 							</h3>
-							<p className="mt-1.5 text-sm leading-snug text-ink-3">
+							<p className="mt-1.5 text-xs leading-snug text-ink-3 sm:text-sm">
 								{example.objective}
 							</p>
 							<p className="mt-3 font-mono text-[0.625rem] text-ink-4">

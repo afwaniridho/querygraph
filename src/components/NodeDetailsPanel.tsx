@@ -65,14 +65,14 @@ export function NodeDetailsPanel({
 				animation: `${closing ? "qg-panel-out" : "qg-panel-in"} ${closing ? "0.18s" : "0.32s"} ease forwards`,
 			}}
 		>
-			<header className="flex items-start justify-between gap-3 border-b border-rule px-5 py-4">
+			<header className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-rule bg-paper px-4 py-3 sm:px-5 sm:py-4">
 				<div className="flex min-w-0 items-center gap-2.5">
 					<Icon
 						size={18}
 						strokeWidth={2}
 						style={{ color: "var(--node-hue, var(--color-teal))" }}
 					/>
-					<h2 className="font-display text-lg leading-tight font-semibold text-ink">
+					<h2 className="font-display text-base leading-tight font-semibold text-ink sm:text-lg">
 						{entry.heading}
 					</h2>
 				</div>
@@ -87,14 +87,14 @@ export function NodeDetailsPanel({
 			</header>
 
 			{snippet && (
-				<pre className="border-b border-rule bg-paper-2 px-5 py-3 font-mono text-[0.75rem] leading-relaxed whitespace-pre-wrap break-words text-ink-3">
+				<pre className="border-b border-rule bg-paper-2 px-4 py-3 font-mono text-[0.72rem] leading-relaxed whitespace-pre-wrap break-words text-ink-3 sm:px-5 sm:text-[0.75rem]">
 					{snippet}
 				</pre>
 			)}
 
 			{access && (
 				<section
-					className="border-b border-rule px-5 py-4"
+					className="border-b border-rule px-4 py-4 sm:px-5"
 					style={{
 						background:
 							access.method === "full_scan" ? "#b8542a0a" : "#1f6b6b0a",
@@ -122,7 +122,7 @@ export function NodeDetailsPanel({
 				</section>
 			)}
 
-			<section className="border-b border-rule px-5 py-4">
+			<section className="border-b border-rule px-4 py-4 sm:px-5">
 				<p className="mb-2 font-mono text-[0.6875rem] tracking-wide text-ink-4 uppercase">
 					In this query
 				</p>
@@ -131,7 +131,7 @@ export function NodeDetailsPanel({
 				</p>
 			</section>
 
-			<section className="border-b border-rule px-5 py-4">
+			<section className="border-b border-rule px-4 py-4 sm:px-5">
 				<p className="mb-2 font-mono text-[0.6875rem] tracking-wide text-ink-4 uppercase">
 					What it is
 				</p>
@@ -140,7 +140,7 @@ export function NodeDetailsPanel({
 				</p>
 			</section>
 
-			<div className="px-5 py-4">
+			<div className="px-4 py-4 sm:px-5">
 				<a
 					href={entry.docs}
 					target="_blank"

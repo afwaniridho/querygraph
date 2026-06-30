@@ -33,18 +33,18 @@ export function QueryHealthPanel({ findings, selected, onSelect }: Props) {
 
 	return (
 		<section
-			className="flex max-h-[42%] min-h-[9.5rem] flex-col border-t border-rule bg-paper"
+			className="flex max-h-[38dvh] min-h-[8.5rem] flex-col border-t border-rule bg-paper md:max-h-[42%] md:min-h-[9.5rem]"
 			aria-label="Query Health"
 			data-testid="query-health"
 		>
-			<header className="flex items-center gap-3 border-b border-rule px-4 py-2.5">
-				<div>
+			<header className="flex flex-wrap items-center gap-2 border-b border-rule px-3 py-2.5 sm:gap-3 sm:px-4">
+				<div className="min-w-0 flex-1">
 					<h2 className="font-display text-sm font-semibold">Query Health</h2>
 					<p className="font-mono text-[0.5625rem] text-ink-4">
 						Static analysis · parses as you type · not EXPLAIN
 					</p>
 				</div>
-				<div className="ml-auto flex gap-1.5">
+				<div className="ml-auto flex shrink-0 gap-1.5">
 					{(["danger", "warning", "info"] as const).map((severity) => (
 						<span
 							key={severity}
@@ -71,7 +71,7 @@ export function QueryHealthPanel({ findings, selected, onSelect }: Props) {
 				</div>
 			) : (
 				<div className="grid min-h-0 flex-1 md:grid-cols-[minmax(11rem,0.9fr)_minmax(14rem,1.2fr)]">
-					<div className="overflow-y-auto border-b border-rule md:border-r md:border-b-0">
+					<div className="max-h-[13dvh] overflow-y-auto border-b border-rule md:max-h-none md:border-r md:border-b-0">
 						{findings.map((finding, index) => {
 							const meta = severityMeta[finding.severity];
 							const Icon = meta.icon;
@@ -104,7 +104,7 @@ export function QueryHealthPanel({ findings, selected, onSelect }: Props) {
 							);
 						})}
 					</div>
-					<div className="overflow-y-auto px-4 py-3">
+					<div className="overflow-y-auto px-3 py-3 sm:px-4">
 						{selected ? (
 							<div className="space-y-2.5 text-xs leading-relaxed">
 								<p className="font-semibold text-ink-2">{selected.evidence}</p>
