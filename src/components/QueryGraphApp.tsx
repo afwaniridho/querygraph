@@ -193,6 +193,7 @@ function GraphStage({
 	const decorationsRef =
 		useRef<MonacoNS.editor.IEditorDecorationsCollection | null>(null);
 	const nodesRef = useRef<Node[]>([]);
+	const latestSqlTextRef = useRef(sqlText);
 	const suppressProgrammaticChangeRef = useRef(false);
 	const suppressCursorRef = useRef(false);
 
@@ -201,6 +202,10 @@ function GraphStage({
 	useEffect(() => {
 		nodesRef.current = nodes;
 	}, [nodes]);
+
+	useEffect(() => {
+		latestSqlTextRef.current = sqlText;
+	}, [sqlText]);
 
 	useEffect(() => {
 		return () => {
@@ -478,6 +483,15 @@ function GraphStage({
 			editorRef.current = editor;
 			monacoRef.current = monaco;
 			decorationsRef.current = editor.createDecorationsCollection([]);
+			const latestSql = latestSqlTextRef.current;
+			if (editor.getValue() !== latestSql) {
+				suppressProgrammaticChangeRef.current = true;
+				try {
+					editor.setValue(latestSql);
+				} finally {
+					suppressProgrammaticChangeRef.current = false;
+				}
+			}
 
 			monaco.editor.defineTheme("querygraph", {
 				base: "vs",
@@ -762,17 +776,17 @@ function GraphStage({
 
 	return (
 		<NodeActionsContext.Provider value={nodeActions}>
-			<div className="flex h-dvh w-full flex-col bg-paper">
-				<header className="flex shrink-0 items-center gap-2 border-b border-rule px-3 py-2.5 md:gap-3 md:px-4">
-					<div className="flex shrink-0 items-center gap-2 md:gap-2.5">
+			<div className="flex h-dvh w-full min-w-0 flex-col overflow-hidden bg-paper">
+				<header className="flex shrink-0 flex-wrap items-center gap-2 border-b border-rule px-2.5 py-2 md:flex-nowrap md:gap-3 md:px-4 md:py-2.5">
+					<div className="flex min-w-0 flex-1 items-center gap-2 md:shrink-0 md:gap-2.5">
 						<img
 							src="/logo192.png"
 							alt=""
-							className="h-9 w-9 object-contain"
+							className="h-8 w-8 shrink-0 object-contain md:h-9 md:w-9"
 							width={36}
 							height={36}
 						/>
-						<h1 className="hidden font-display text-[1.3rem] font-semibold leading-none tracking-[-0.035em] text-ink sm:block">
+						<h1 className="sr-only sm:not-sr-only sm:font-display sm:text-[1.3rem] sm:leading-none sm:font-semibold sm:tracking-[-0.035em] sm:text-ink">
 							QueryGraph
 						</h1>
 						<p className="hidden text-xs text-ink-4 xl:block">
@@ -780,24 +794,24 @@ function GraphStage({
 						</p>
 						<nav
 							aria-label="Product mode"
-							className="ml-1 flex rounded border border-rule bg-paper-2 p-0.5"
+							className="ml-0 flex min-w-0 rounded border border-rule bg-paper-2 p-0.5 sm:ml-1"
 						>
 							<RouterLink
 								to="/"
 								aria-current="page"
-								className="rounded bg-paper px-2.5 py-3 font-mono text-[0.65rem] text-accent shadow-sm md:py-1.5"
+								className="rounded bg-paper px-2 py-2 font-mono text-[0.6rem] whitespace-nowrap text-accent shadow-sm sm:px-2.5 md:py-1.5 md:text-[0.65rem]"
 							>
 								Query Logic
 							</RouterLink>
 							<RouterLink
 								to="/explain"
-								className="rounded px-2.5 py-3 font-mono text-[0.65rem] text-ink-3 hover:text-ink md:py-1.5"
+								className="rounded px-2 py-2 font-mono text-[0.6rem] whitespace-nowrap text-ink-3 hover:text-ink sm:px-2.5 md:py-1.5 md:text-[0.65rem]"
 							>
 								Execution Plan
 							</RouterLink>
 						</nav>
 					</div>
-					<div className="ml-auto flex items-center gap-0.5 md:gap-1">
+					<div className="ml-auto flex shrink-0 items-center gap-0.5 md:gap-1">
 						<button
 							type="button"
 							onClick={() => setExamplesOpen(true)}
@@ -850,12 +864,12 @@ function GraphStage({
 					</div>
 				) : null}
 
-				<div className="relative flex min-h-0 flex-1">
+				<div className="relative flex min-h-0 flex-1 overflow-hidden pb-[3rem] md:pb-0">
 					<section
 						data-active={mobilePane === "editor"}
 						className="flex w-full min-w-0 flex-col border-r border-rule data-[active=false]:hidden md:flex md:w-[38%] md:max-w-[34rem] md:data-[active=false]:flex"
 					>
-						<div className="flex items-center justify-between gap-2 border-b border-rule px-3 py-2 md:px-4">
+						<div className="flex flex-wrap items-center justify-between gap-2 border-b border-rule px-3 py-2 md:flex-nowrap md:px-4">
 							<div className="flex items-center gap-0.5 rounded-sm border border-rule bg-paper-2 p-0.5">
 								{DIALECTS.map((d) => (
 									<button
@@ -873,13 +887,13 @@ function GraphStage({
 								type="button"
 								onClick={() => setSchemaOpen((v) => !v)}
 								data-on={schemaOpen}
-								className="flex items-center gap-1.5 rounded-sm border border-rule px-2 py-1 font-mono text-[0.625rem] tracking-wide uppercase transition data-[on=false]:text-ink-4 data-[on=false]:hover:text-ink-2 data-[on=true]:border-teal data-[on=true]:text-teal-2"
+								className="flex min-w-0 items-center gap-1.5 rounded-sm border border-rule px-2 py-1 font-mono text-[0.625rem] tracking-wide uppercase transition data-[on=false]:text-ink-4 data-[on=false]:hover:text-ink-2 data-[on=true]:border-teal data-[on=true]:text-teal-2"
 								title="Add CREATE TABLE / INDEX DDL to see index-aware access paths"
 							>
 								<Database size={12} />
-								Schema
+								<span className="shrink-0">Schema</span>
 								{schemaSummary ? (
-									<span className="ml-0.5 rounded-sm bg-paper-3 px-1 text-teal-2">
+									<span className="ml-0.5 max-w-[9rem] truncate rounded-sm bg-paper-3 px-1 text-teal-2 sm:max-w-none">
 										{schemaSummary}
 									</span>
 								) : null}
@@ -899,8 +913,8 @@ function GraphStage({
 							</div>
 						)}
 						{schemaOpen && (
-							<div className="flex min-h-[7rem] flex-col border-b border-rule bg-paper-2">
-								<div className="flex items-center justify-between px-4 py-1.5">
+							<div className="flex max-h-[34dvh] min-h-[7rem] flex-col border-b border-rule bg-paper-2 md:max-h-[40%]">
+								<div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-4 py-1.5">
 									<span className="font-mono text-[0.625rem] tracking-wide text-ink-4 uppercase">
 										Schema DDL — optional
 									</span>
@@ -1032,7 +1046,7 @@ function GraphStage({
 						</ReactFlow>
 
 						{detailNode && (
-							<div className="absolute top-0 right-0 z-30 h-full w-full max-w-[22rem]">
+							<div className="absolute inset-0 z-30 md:top-0 md:right-0 md:left-auto md:h-full md:w-full md:max-w-[22rem]">
 								<NodeDetailsPanel
 									node={detailNode}
 									rawSql={sqlText}
@@ -1044,7 +1058,7 @@ function GraphStage({
 						)}
 					</section>
 
-					<nav className="absolute right-0 bottom-0 left-0 z-40 flex border-t border-rule bg-paper md:hidden">
+					<nav className="absolute right-0 bottom-0 left-0 z-40 flex min-h-12 border-t border-rule bg-paper md:hidden">
 						<button
 							type="button"
 							onClick={() => setMobilePane("editor")}
@@ -1075,7 +1089,7 @@ function GraphStage({
 				/>
 			)}
 			{shareOpen ? (
-				<div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+				<div className="fixed inset-0 z-[110] flex items-end justify-center p-0 sm:items-center sm:p-4">
 					<button
 						type="button"
 						aria-label="Close share dialog"
@@ -1086,7 +1100,7 @@ function GraphStage({
 						role="dialog"
 						aria-modal="true"
 						aria-labelledby="share-dialog-title"
-						className="relative w-full max-w-lg rounded border border-rule bg-paper p-5 shadow-2xl"
+						className="relative max-h-[92dvh] w-full max-w-lg overflow-y-auto rounded-t border border-rule bg-paper p-4 shadow-2xl sm:rounded sm:p-5"
 					>
 						<div className="flex items-start justify-between gap-4">
 							<div>
@@ -1172,7 +1186,7 @@ function GraphStage({
 								>
 									Clipboard unavailable — copy this link manually
 								</label>
-								<div className="mt-1 flex gap-2">
+								<div className="mt-1 flex flex-col gap-2 sm:flex-row">
 									<input
 										id="share-url-fallback"
 										data-testid="share-url-fallback"

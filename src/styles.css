@@ -206,8 +206,31 @@ body {
 }
 
 @media (max-width: 768px) {
+	html,
+	body,
+	#app {
+		height: 100%;
+		overflow: hidden;
+	}
+
 	.react-flow__panel.react-flow__controls {
-		margin-bottom: 5rem !important;
+		margin: 0.75rem !important;
+		margin-bottom: calc(4rem + env(safe-area-inset-bottom)) !important;
+	}
+
+	.react-flow__controls-button {
+		width: 2.75rem !important;
+		height: 2.75rem !important;
+	}
+
+	.monaco-editor .margin {
+		max-width: 3rem;
+	}
+
+	.monaco-editor,
+	.monaco-editor-background,
+	.monaco-editor .inputarea.ime-input {
+		touch-action: pan-x pan-y;
 	}
 }
 

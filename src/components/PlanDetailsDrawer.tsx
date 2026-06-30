@@ -11,9 +11,11 @@ import {
 import type { PlanFinding, PlanNode } from "#/lib/explain/types";
 
 const Row = ({ label, value }: { label: string; value: React.ReactNode }) => (
-	<div className="flex justify-between gap-4 border-b border-rule-soft py-1.5 text-xs">
+	<div className="flex flex-wrap justify-between gap-x-4 gap-y-1 border-b border-rule-soft py-1.5 text-xs">
 		<dt className="text-ink-4">{label}</dt>
-		<dd className="text-right font-mono text-ink-2">{value}</dd>
+		<dd className="max-w-full break-words text-right font-mono text-ink-2">
+			{value}
+		</dd>
 	</div>
 );
 
@@ -42,17 +44,17 @@ export function PlanDetailsDrawer({
 			role="dialog"
 			aria-modal="true"
 			aria-labelledby="plan-details-title"
-			className="fixed inset-x-0 bottom-0 z-40 max-h-[82dvh] overflow-y-auto border-t border-rule bg-paper shadow-2xl md:inset-y-0 md:right-0 md:left-auto md:w-[26rem] md:border-t-0 md:border-l"
+			className="fixed inset-x-0 bottom-0 z-40 max-h-[86dvh] overflow-y-auto rounded-t border-t border-rule bg-paper shadow-2xl md:inset-y-0 md:right-0 md:left-auto md:w-[26rem] md:rounded-none md:border-t-0 md:border-l"
 			data-testid="plan-details"
 		>
-			<div className="sticky top-0 flex items-start gap-3 border-b border-rule bg-paper px-5 py-4">
+			<div className="sticky top-0 z-10 flex items-start gap-3 border-b border-rule bg-paper px-4 py-3 sm:px-5 sm:py-4">
 				<div className="min-w-0 flex-1">
 					<p className="font-mono text-[0.6rem] tracking-widest text-accent uppercase">
 						Plan operation
 					</p>
 					<h2
 						id="plan-details-title"
-						className="mt-1 font-display text-xl font-semibold"
+						className="mt-1 font-display text-lg font-semibold sm:text-xl"
 					>
 						{node.nodeType}
 					</h2>
@@ -76,7 +78,7 @@ export function PlanDetailsDrawer({
 					<X size={18} />
 				</button>
 			</div>
-			<div className="space-y-6 p-5">
+			<div className="space-y-5 p-4 sm:space-y-6 sm:p-5">
 				<section>
 					<h3 className="font-mono text-[0.65rem] tracking-widest text-ink-3 uppercase">
 						What happened

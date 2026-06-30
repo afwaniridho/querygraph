@@ -16,7 +16,7 @@ export function AboutModal({ closing, onClose }: Props) {
 	}, [onClose]);
 
 	return (
-		<div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+		<div className="fixed inset-0 z-[100] flex items-end justify-center p-0 sm:items-center sm:p-4">
 			<button
 				type="button"
 				aria-label="Close dialog"
@@ -27,17 +27,16 @@ export function AboutModal({ closing, onClose }: Props) {
 				}}
 			/>
 			<div
-				className="relative w-full max-w-lg border border-rule bg-paper shadow-2xl"
+				className="relative max-h-[92dvh] w-full max-w-lg overflow-y-auto rounded-t border border-rule bg-paper shadow-2xl sm:rounded"
 				style={{
-					borderRadius: 4,
 					animation: `${closing ? "qg-pop-out 0.15s" : "qg-pop-in 0.28s"} ease forwards`,
 				}}
 				role="dialog"
 				aria-modal="true"
 				aria-label="About QueryGraph"
 			>
-				<header className="flex items-center justify-between border-b border-rule px-6 py-4">
-					<h2 className="font-display text-2xl font-semibold text-ink">
+				<header className="sticky top-0 z-10 flex items-center justify-between border-b border-rule bg-paper px-4 py-3 sm:px-6 sm:py-4">
+					<h2 className="font-display text-xl font-semibold text-ink sm:text-2xl">
 						QueryGraph
 					</h2>
 					<button
@@ -50,7 +49,7 @@ export function AboutModal({ closing, onClose }: Props) {
 					</button>
 				</header>
 
-				<div className="space-y-4 px-6 py-5 text-[0.9375rem] leading-relaxed text-ink-2">
+				<div className="space-y-4 px-4 py-4 text-[0.9rem] leading-relaxed text-ink-2 sm:px-6 sm:py-5 sm:text-[0.9375rem]">
 					<p>
 						QueryGraph reads a PostgreSQL or MySQL statement and draws it back
 						to you as a step-by-step diagram — every clause becomes a numbered
