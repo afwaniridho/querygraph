@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MYSQL_PLAN_EXAMPLES, PLAN_EXAMPLES } from "../explain/examples";
+import { EXPLAIN_FIXTURES } from "../explain/fixtures";
 import { analyzePlan } from "../explain/health";
 import {
 	estimateRatio,
@@ -20,6 +21,16 @@ const node = (extra: Record<string, unknown> = {}) => ({
 });
 
 describe("MySQL EXPLAIN FORMAT=JSON parser", () => {
+	it("parses existing raw MySQL JSON", () => {
+		expect(
+			parseMysqlPlan(
+				JSON.stringify({
+					query_block: { table: { table_name: "users", access_type: "ALL" } },
+				}),
+			).nodes,
+		).toHaveLength(2);
+	});
+
 	it("parses a query_block root and single table access", () => {
 		const parsed = parseMysqlPlan(
 			JSON.stringify({
@@ -94,6 +105,26 @@ describe("MySQL EXPLAIN FORMAT=JSON parser", () => {
 		);
 	});
 
+	it("accepts common copied MySQL JSON wrappers", () => {
+		const raw = {
+			query_block: {
+				select_id: 1,
+				table: { table_name: "users", access_type: "ALL" },
+			},
+		};
+		const explain = JSON.stringify(raw);
+		expect(
+			parseMysqlPlan(JSON.stringify([{ EXPLAIN: explain }])).database,
+		).toBe("mysql");
+		expect(parseMysqlPlan(JSON.stringify({ EXPLAIN: explain })).database).toBe(
+			"mysql",
+		);
+		expect(parseMysqlPlan(JSON.stringify(explain)).database).toBe("mysql");
+		expect(
+			parseMysqlPlan(JSON.stringify({ workbench_result: raw })).nodes,
+		).toHaveLength(2);
+	});
+
 	it.each([
 		["", "empty"],
 		["{", "invalid-json"],
@@ -137,6 +168,10 @@ describe("MySQL EXPLAIN FORMAT=JSON parser", () => {
 });
 
 describe("PostgreSQL EXPLAIN parser", () => {
+	it("parses existing raw PostgreSQL JSON", () => {
+		expect(parsePostgresPlan(wrap(node())).nodes).toHaveLength(1);
+	});
+
 	it("parses estimated plans and stable IDs", () => {
 		const input = wrap(
 			node({ Plans: [node({ "Node Type": "Index Scan" }), node()] }),
@@ -192,9 +227,26 @@ describe("PostgreSQL EXPLAIN parser", () => {
 		expect(parsePostgresPlan(JSON.stringify(node())).nodes).toHaveLength(1);
 	});
 
+	it("accepts common copied PostgreSQL QUERY PLAN wrappers", () => {
+		const raw = [{ Plan: node({ "Relation Name": "users" }) }];
+		expect(
+			parsePostgresPlan(JSON.stringify([{ "QUERY PLAN": raw }])).nodes[0]
+				.relationName,
+		).toBe("users");
+		expect(
+			parsePostgresPlan(JSON.stringify({ "QUERY PLAN": raw })).nodes[0]
+				.nodeType,
+		).toBe("Seq Scan");
+		expect(
+			parsePostgresPlan(JSON.stringify({ "QUERY PLAN": JSON.stringify(raw) }))
+				.database,
+		).toBe("postgresql");
+	});
+
 	it.each([
 		["", "empty"],
 		["{", "invalid-json"],
+		["Seq Scan on users", "invalid-json"],
 		["[]", "invalid-structure"],
 		['{"query_block":{}}', "invalid-structure"],
 		['{"Plan":{}}', "missing-plan"],
@@ -237,6 +289,55 @@ describe("PostgreSQL EXPLAIN parser", () => {
 				maxDepth: 1,
 			}),
 		).toThrow(/maximum depth/);
+	});
+});
+
+describe("EXPLAIN fixture corpus", () => {
+	it.each(
+		EXPLAIN_FIXTURES,
+	)("parses $id as $database with non-empty nodes", (fixture) => {
+		const parsed =
+			fixture.database === "mysql"
+				? parseMysqlPlan(fixture.json)
+				: parsePostgresPlan(fixture.json);
+		expect(parsed.database).toBe(fixture.database);
+		expect(parsed.nodes.length).toBeGreaterThan(0);
+	});
+
+	it("preserves selected PostgreSQL fixture properties", () => {
+		const byId = Object.fromEntries(
+			EXPLAIN_FIXTURES.filter((item) => item.database === "postgresql").map(
+				(item) => [item.id, parsePostgresPlan(item.json)],
+			),
+		);
+		expect(byId["postgres-buffers"].hasBuffers).toBe(true);
+		expect(byId["postgres-analyze"].analyzed).toBe(true);
+		expect(
+			byId["postgres-cte"].nodes.some(
+				(item) => item.cteName === "active_users",
+			),
+		).toBe(true);
+	});
+
+	it("preserves selected MySQL fixture properties", () => {
+		const byId = Object.fromEntries(
+			EXPLAIN_FIXTURES.filter((item) => item.database === "mysql").map(
+				(item) => [item.id, parseMysqlPlan(item.json)],
+			),
+		);
+		expect(
+			byId["mysql-filesort"].nodes.some((item) => item.usingFilesort),
+		).toBe(true);
+		expect(
+			byId["mysql-temporary-table"].nodes.some(
+				(item) => item.usingTemporaryTable,
+			),
+		).toBe(true);
+		expect(
+			byId["mysql-materialized-subquery"].nodes.some(
+				(item) => item.materializedFromSubquery,
+			),
+		).toBe(true);
 	});
 });
 

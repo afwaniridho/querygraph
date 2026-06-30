@@ -1,3 +1,4 @@
+import { normalizePostgresExplainInput } from "./normalize-input";
 import {
 	type BlockMetrics,
 	type ExecutionPlan,
@@ -89,16 +90,7 @@ export function parsePostgresPlan(
 			`This plan exceeds the ${Math.round(limits.maxInputBytes / 1_000_000)} MB input limit.`,
 		);
 	}
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(input);
-	} catch (error) {
-		throw new PlanParseError(
-			"invalid-json",
-			"This does not appear to be PostgreSQL EXPLAIN JSON.",
-			error instanceof Error ? error.message : undefined,
-		);
-	}
+	const parsed = normalizePostgresExplainInput(input);
 	const top = normalizeTopLevel(parsed);
 	if (!object(top.Plan) || typeof top.Plan["Node Type"] !== "string") {
 		throw new PlanParseError(

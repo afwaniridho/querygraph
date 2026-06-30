@@ -635,8 +635,8 @@ function App() {
 								<p className="mt-6 text-xs leading-relaxed text-ink-4">
 									Supported:{" "}
 									{database === "mysql"
-										? "MySQL EXPLAIN FORMAT=JSON query_block output, including nested_loop, operation wrappers, materialized subqueries, and access-path fields. Not supported: tabular EXPLAIN, TREE text, optimizer trace, or SQL-only input."
-										: "PostgreSQL EXPLAIN JSON, including ANALYZE, BUFFERS, workers, JIT, and triggers. Not supported: text, YAML, XML, MySQL EXPLAIN, or SQL-only input."}{" "}
+										? "MySQL EXPLAIN FORMAT=JSON, including JSON copied from common SQL clients, nested_loop, operation wrappers, materialized subqueries, and access-path fields. Not supported: tabular EXPLAIN, TREE text, optimizer trace, or SQL-only input."
+										: "PostgreSQL EXPLAIN JSON, including JSON copied from common SQL clients, ANALYZE, BUFFERS, workers, JIT, and triggers. Not supported: text, YAML, XML, MySQL EXPLAIN, or SQL-only input."}{" "}
 									Limits: {PLAN_LIMITS.maxInputBytes / 1_000_000} MB,{" "}
 									{PLAN_LIMITS.maxNodes} nodes, depth {PLAN_LIMITS.maxDepth}.
 								</p>

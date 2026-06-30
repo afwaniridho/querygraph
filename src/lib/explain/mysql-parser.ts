@@ -1,3 +1,4 @@
+import { normalizeMysqlExplainInput } from "./normalize-input";
 import { PLAN_LIMITS } from "./parser";
 import {
 	type ExecutionPlan,
@@ -252,16 +253,7 @@ export function parseMysqlPlan(
 			`This MySQL plan exceeds the ${Math.round(limits.maxInputBytes / 1_000_000)} MB input limit.`,
 		);
 	}
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(input);
-	} catch (error) {
-		throw new PlanParseError(
-			"invalid-json",
-			"This does not appear to be MySQL EXPLAIN FORMAT=JSON output.",
-			error instanceof Error ? error.message : undefined,
-		);
-	}
+	const parsed = normalizeMysqlExplainInput(input);
 	if (typeof parsed === "string") {
 		throw new PlanParseError(
 			"invalid-structure",
