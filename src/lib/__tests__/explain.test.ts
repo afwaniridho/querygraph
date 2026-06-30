@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { rankPlanBottlenecks } from "../explain/bottlenecks";
 import { MYSQL_PLAN_EXAMPLES, PLAN_EXAMPLES } from "../explain/examples";
 import { EXPLAIN_FIXTURES } from "../explain/fixtures";
 import { analyzePlan } from "../explain/health";
@@ -365,6 +366,187 @@ describe("plan metrics", () => {
 			wrap(node({ "Plan Rows": 0, "Actual Rows": 20 })),
 		).nodes[0];
 		expect(estimateRatio(parsed)).toBe(Number.POSITIVE_INFINITY);
+	});
+});
+
+describe("plan bottlenecks", () => {
+	it("ranks actual time without aggregating child time", () => {
+		const ranked = rankPlanBottlenecks(
+			parsePostgresPlan(
+				wrap(
+					node({
+						"Node Type": "Nested Loop",
+						"Actual Rows": 1,
+						"Actual Total Time": 50,
+						Plans: [
+							node({
+								"Node Type": "Index Scan",
+								"Actual Rows": 1,
+								"Actual Total Time": 80,
+							}),
+						],
+					}),
+				),
+			),
+		);
+		const actualTime = ranked.find((section) => section.kind === "actual-time");
+		expect(actualTime?.items[0]).toMatchObject({
+			nodeId: "plan-0-0",
+			value: 80,
+		});
+	});
+
+	it("ranks loop-aware repeated work from inclusive time times loops", () => {
+		const ranked = rankPlanBottlenecks(
+			parsePostgresPlan(
+				wrap(
+					node({
+						"Actual Rows": 5,
+						"Actual Total Time": 20,
+						"Actual Loops": 2,
+						Plans: [
+							node({
+								"Actual Rows": 1,
+								"Actual Total Time": 3,
+								"Actual Loops": 50,
+							}),
+						],
+					}),
+				),
+			),
+		);
+		const repeated = ranked.find(
+			(section) => section.kind === "loop-aware-time",
+		);
+		expect(repeated?.items[0]).toMatchObject({
+			nodeId: "plan-0-0",
+			value: 150,
+		});
+		expect(repeated?.items[0].evidence).toContain("loop-aware inclusive work");
+	});
+
+	it("ranks cardinality mismatches using actual rows per loop", () => {
+		const ranked = rankPlanBottlenecks(
+			parsePostgresPlan(
+				wrap(
+					node({
+						"Plan Rows": 10,
+						"Actual Rows": 10,
+						Plans: [
+							node({
+								"Plan Rows": 5,
+								"Actual Rows": 500,
+							}),
+						],
+					}),
+				),
+			),
+		);
+		const mismatch = ranked.find(
+			(section) => section.kind === "cardinality-mismatch",
+		);
+		expect(mismatch?.items).toHaveLength(1);
+		expect(mismatch?.items[0]).toMatchObject({
+			nodeId: "plan-0-0",
+			value: 100,
+		});
+	});
+
+	it("ranks rows removed by filter and join filter together", () => {
+		const ranked = rankPlanBottlenecks(
+			parsePostgresPlan(
+				wrap(
+					node({
+						"Actual Rows": 10,
+						"Rows Removed by Filter": 40,
+						Plans: [
+							node({
+								"Actual Rows": 10,
+								"Rows Removed by Join Filter": 90,
+							}),
+						],
+					}),
+				),
+			),
+		);
+		const removed = ranked.find((section) => section.kind === "rows-removed");
+		expect(removed?.items[0]).toMatchObject({
+			nodeId: "plan-0-0",
+			value: 90,
+		});
+		expect(removed?.items[0].evidence).toContain("by join filter");
+	});
+
+	it("ranks temp I/O, disk sort, and hash batching", () => {
+		const ranked = rankPlanBottlenecks(
+			parsePostgresPlan(
+				wrap(
+					node({
+						"Actual Rows": 10,
+						"Actual Total Time": 1,
+						Plans: [
+							node({
+								"Node Type": "Sort",
+								"Actual Rows": 10,
+								"Actual Total Time": 1,
+								"Sort Method": "external merge",
+								"Sort Space Used": 400,
+								"Sort Space Type": "Disk",
+							}),
+							node({
+								"Node Type": "Hash",
+								"Actual Rows": 10,
+								"Actual Total Time": 1,
+								"Hash Batches": 8,
+								"Temp Read Blocks": 100,
+								"Temp Written Blocks": 60,
+							}),
+						],
+					}),
+				),
+			),
+		);
+		const temp = ranked.find((section) => section.kind === "temp-io");
+		expect(temp?.items.map((item) => item.nodeId)).toEqual([
+			"plan-0-0",
+			"plan-0-1",
+		]);
+		expect(temp?.items[0].evidence).toContain("external merge");
+		expect(temp?.items[1].evidence).toContain("hash batches");
+	});
+
+	it("ranks estimated cost and rows for estimated plans", () => {
+		const ranked = rankPlanBottlenecks(
+			parsePostgresPlan(
+				wrap(
+					node({
+						"Total Cost": 10,
+						"Plan Rows": 50,
+						Plans: [
+							node({
+								"Node Type": "Index Scan",
+								"Total Cost": 200,
+								"Plan Rows": 10_000,
+							}),
+						],
+					}),
+				),
+			),
+		);
+		expect(
+			ranked.find((section) => section.kind === "estimated-cost")?.items[0],
+		).toMatchObject({ nodeId: "plan-0-0", value: 200 });
+		expect(
+			ranked.find((section) => section.kind === "estimated-rows")?.items[0],
+		).toMatchObject({ nodeId: "plan-0-0", value: 10_000 });
+	});
+
+	it("returns no sections when no useful metrics are present", () => {
+		expect(
+			rankPlanBottlenecks(
+				parsePostgresPlan(wrap({ "Node Type": "Result", "Actual Rows": 1 })),
+			),
+		).toEqual([]);
 	});
 });
 
