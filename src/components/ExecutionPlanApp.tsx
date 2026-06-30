@@ -17,6 +17,7 @@ import {
 	CheckCircle2,
 	ChevronDown,
 	ChevronUp,
+	CircleHelp,
 	Clipboard,
 	Copy,
 	Database,
@@ -25,6 +26,7 @@ import {
 	RotateCcw,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { AboutModal } from "#/components/AboutModal";
 import {
 	type PlanBottleneckItem,
 	rankPlanBottlenecks,
@@ -47,6 +49,7 @@ import { PlanDetailsDrawer } from "./PlanDetailsDrawer";
 import { PlanNodeCard, type PlanNodeData } from "./PlanNodeCard";
 
 const nodeTypes = { plan: PlanNodeCard };
+const CLOSE_MS = 200;
 const CURRENT_SQL_KEY = "querygraph.current-sql";
 const PLAN_DATABASE_KEY = "querygraph.explain-database";
 const planInputKey = (database: PlanDatabase) =>
@@ -127,6 +130,8 @@ function App() {
 	const [examplesOpen, setExamplesOpen] = useState(true);
 	const [activeExample, setActiveExample] = useState<PlanExample | null>(null);
 	const [copied, setCopied] = useState<string | null>(null);
+	const [aboutOpen, setAboutOpen] = useState(false);
+	const [aboutClosing, setAboutClosing] = useState(false);
 	const [hydrated, setHydrated] = useState(false);
 	const [desktop, setDesktop] = useState(() =>
 		typeof window === "undefined"
@@ -260,6 +265,13 @@ function App() {
 		setActiveExample(example);
 		setMobilePane("plan");
 	};
+	const closeAbout = useCallback(() => {
+		setAboutClosing(true);
+		setTimeout(() => {
+			setAboutOpen(false);
+			setAboutClosing(false);
+		}, CLOSE_MS);
+	}, []);
 	const clear = () => {
 		setInput("");
 		setPlan(null);
@@ -312,37 +324,57 @@ function App() {
 	return (
 		<div className="flex h-dvh min-w-0 flex-col overflow-hidden bg-paper text-ink">
 			<header className="flex shrink-0 flex-wrap items-center gap-2 border-b border-rule px-2.5 py-2 md:flex-nowrap md:gap-3 md:px-4 md:py-2.5">
-				<div className="flex min-w-0 flex-1 items-center gap-2.5 md:flex-none">
+				<div className="flex min-w-0 flex-1 items-center gap-2 md:shrink-0 md:gap-2.5">
 					<img
 						src="/logo192.png"
 						alt=""
-						className="h-8 w-8 shrink-0 md:h-9 md:w-9"
+						className="h-8 w-8 shrink-0 object-contain md:h-9 md:w-9"
+						width={36}
+						height={36}
 					/>
-					<h1 className="hidden font-display text-[1.3rem] font-semibold tracking-[-.035em] sm:block">
+					<h1 className="sr-only sm:not-sr-only sm:font-display sm:text-[1.3rem] sm:leading-none sm:font-semibold sm:tracking-[-0.035em] sm:text-ink">
 						QueryGraph
 					</h1>
+					<p className="hidden text-xs text-ink-4 xl:block">
+						Read SQL like a flowchart
+					</p>
+					<nav
+						aria-label="Product mode"
+						className="ml-0 flex min-w-0 rounded border border-rule bg-paper-2 p-0.5 sm:ml-1"
+					>
+						<Link
+							to="/"
+							className="rounded px-2 py-2 font-mono text-[0.6rem] whitespace-nowrap text-ink-3 hover:text-ink sm:px-2.5 md:py-1.5 md:text-[0.65rem]"
+						>
+							Query Logic
+						</Link>
+						<Link
+							to="/explain"
+							className="rounded bg-paper px-2 py-2 font-mono text-[0.6rem] whitespace-nowrap text-accent shadow-sm sm:px-2.5 md:py-1.5 md:text-[0.65rem]"
+							aria-current="page"
+						>
+							Execution Plan
+						</Link>
+					</nav>
 				</div>
-				<nav
-					aria-label="Product mode"
-					className="flex min-w-0 rounded border border-rule bg-paper-2 p-0.5"
-				>
-					<Link
-						to="/"
-						className="rounded px-2 py-2 font-mono text-[.6rem] whitespace-nowrap text-ink-3 hover:text-ink sm:px-2.5 md:py-1.5 md:text-[.65rem]"
+				<div className="ml-auto flex shrink-0 items-center gap-2 md:gap-3">
+					<div className="hidden items-center gap-2 font-mono text-[.62rem] text-ink-4 md:flex">
+						<Database size={13} />{" "}
+						{database === "mysql" ? "MySQL" : "PostgreSQL"} · processed locally
+					</div>
+					<button
+						type="button"
+						onClick={() => {
+							setAboutClosing(false);
+							setAboutOpen(true);
+						}}
+						title="About"
+						aria-label="About"
+						className="flex h-10 items-center gap-1.5 rounded px-2 font-mono text-[0.75rem] text-ink-2 transition hover:bg-paper-2 hover:text-ink md:h-9 md:px-3"
 					>
-						Query Logic
-					</Link>
-					<Link
-						to="/explain"
-						className="rounded bg-paper px-2 py-2 font-mono text-[.6rem] whitespace-nowrap text-accent shadow-sm sm:px-2.5 md:py-1.5 md:text-[.65rem]"
-						aria-current="page"
-					>
-						Execution Plan
-					</Link>
-				</nav>
-				<div className="ml-auto hidden items-center gap-2 font-mono text-[.62rem] text-ink-4 md:flex">
-					<Database size={13} /> {database === "mysql" ? "MySQL" : "PostgreSQL"}{" "}
-					· processed locally
+						<CircleHelp size={15} />
+						<span className="hidden sm:inline">About</span>
+					</button>
 				</div>
 			</header>
 
@@ -483,7 +515,7 @@ function App() {
 					/>
 					<div
 						data-open={examplesOpen}
-						className="max-h-11 shrink-0 overflow-hidden border-t border-rule bg-paper transition-[max-height] duration-200 data-[open=true]:max-h-[30dvh] data-[open=true]:overflow-y-auto md:max-h-[36%] md:overflow-y-auto"
+						className="max-h-14 shrink-0 overflow-hidden border-t border-rule bg-paper transition-[max-height] duration-200 data-[open=true]:max-h-[30dvh] data-[open=true]:overflow-y-auto md:max-h-14 md:data-[open=true]:max-h-[36%] md:data-[open=true]:overflow-y-auto"
 					>
 						<button
 							type="button"
@@ -491,7 +523,7 @@ function App() {
 							disabled={!hydrated}
 							aria-expanded={examplesOpen}
 							aria-controls="plan-examples-list"
-							className="flex h-11 w-full items-center justify-between gap-3 px-3 text-left disabled:cursor-wait disabled:opacity-60 md:pointer-events-none md:h-auto md:px-3 md:pt-3 md:pb-0"
+							className="flex h-14 w-full items-center justify-between gap-3 px-3 text-left disabled:cursor-wait disabled:opacity-60 md:px-3"
 						>
 							<span className="flex min-w-0 items-center gap-2">
 								<BookOpen size={14} className="shrink-0 text-ink-4" />
@@ -499,7 +531,7 @@ function App() {
 									Examples
 								</span>
 							</span>
-							<span className="flex items-center gap-1.5 font-mono text-[.58rem] text-ink-4 uppercase md:hidden">
+							<span className="flex items-center gap-1.5 font-mono text-[.58rem] text-ink-4 uppercase">
 								{examplesOpen ? "Hide" : "Show"}
 								{examplesOpen ? (
 									<ChevronDown size={14} />
@@ -508,7 +540,7 @@ function App() {
 								)}
 							</span>
 						</button>
-						{examplesOpen || desktop ? (
+						{examplesOpen ? (
 							<div
 								id="plan-examples-list"
 								className="grid grid-cols-1 gap-1.5 px-3 pb-3 min-[420px]:grid-cols-2 md:mt-2"
@@ -796,6 +828,7 @@ function App() {
 					onClose={() => setSelected(null)}
 				/>
 			) : null}
+			{aboutOpen && <AboutModal closing={aboutClosing} onClose={closeAbout} />}
 		</div>
 	);
 }
