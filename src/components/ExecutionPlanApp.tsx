@@ -23,6 +23,10 @@ import {
 	RotateCcw,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+	type PlanBottleneckItem,
+	rankPlanBottlenecks,
+} from "#/lib/explain/bottlenecks";
 import { ALL_PLAN_EXAMPLES, type PlanExample } from "#/lib/explain/examples";
 import { nodeCategory } from "#/lib/explain/explain";
 import { analyzePlan } from "#/lib/explain/health";
@@ -36,6 +40,7 @@ import {
 	type PlanNode,
 	PlanParseError,
 } from "#/lib/explain/types";
+import { PlanBottlenecksPanel } from "./PlanBottlenecksPanel";
 import { PlanDetailsDrawer } from "./PlanDetailsDrawer";
 import { PlanNodeCard, type PlanNodeData } from "./PlanNodeCard";
 
@@ -127,6 +132,14 @@ function App() {
 	);
 	const { fitView, setCenter } = useReactFlow();
 	const findings = useMemo(() => (plan ? analyzePlan(plan) : []), [plan]);
+	const bottlenecks = useMemo(
+		() => (plan ? rankPlanBottlenecks(plan) : []),
+		[plan],
+	);
+	const bottleneckCount = bottlenecks.reduce(
+		(total, section) => total + section.items.length,
+		0,
+	);
 	const examples = useMemo(
 		() => ALL_PLAN_EXAMPLES.filter((example) => example.database === database),
 		[database],
@@ -205,6 +218,26 @@ function App() {
 			const node = plan.nodeById[item.nodeId];
 			if (!node) return;
 			setActiveFinding(item);
+			setSelected(node);
+			setMobilePane("plan");
+			const rendered = graph.nodes.find(
+				(candidate) => candidate.id === node.id,
+			);
+			if (rendered)
+				setCenter(rendered.position.x + 119, rendered.position.y + 66, {
+					zoom: 1,
+					duration: 350,
+				});
+		},
+		[plan, graph.nodes, setCenter],
+	);
+
+	const selectBottleneck = useCallback(
+		(item: PlanBottleneckItem) => {
+			if (!plan) return;
+			const node = plan.nodeById[item.nodeId];
+			if (!node) return;
+			setActiveFinding(null);
 			setSelected(node);
 			setMobilePane("plan");
 			const rendered = graph.nodes.find(
@@ -318,9 +351,9 @@ function App() {
 						data-active={mobilePane === pane}
 						className="h-11 border-r border-rule font-mono text-[.65rem] tracking-wide uppercase data-[active=true]:bg-paper-2 data-[active=true]:text-accent"
 					>
-						{pane}
-						{pane === "findings" && findings.length
-							? ` (${findings.length})`
+						{pane === "findings" ? "triage" : pane}
+						{pane === "findings" && (findings.length || bottleneckCount)
+							? ` (${bottleneckCount + findings.length})`
 							: ""}
 					</button>
 				))}
@@ -649,19 +682,41 @@ function App() {
 					data-active={mobilePane === "findings"}
 					className="w-full overflow-y-auto data-[active=false]:hidden md:block md:w-[21rem] md:border-l md:border-rule md:data-[active=false]:block"
 					data-testid="plan-health"
-					aria-label="Plan Health findings"
+					aria-label="Plan triage"
 				>
 					<div className="sticky top-0 border-b border-rule bg-paper px-4 py-3">
 						<p className="font-mono text-[.62rem] tracking-widest text-ink-3 uppercase">
-							Plan Health
+							Plan Triage
 						</p>
 						<p className="mt-1 text-xs text-ink-4">
-							{findings.length
-								? `${findings.length} evidence-based finding${findings.length === 1 ? "" : "s"}`
-								: "No high-confidence issues found"}
+							{plan
+								? `${bottleneckCount} ranked bottleneck${bottleneckCount === 1 ? "" : "s"} · ${findings.length} finding${findings.length === 1 ? "" : "s"}`
+								: "Load a plan to rank bottlenecks"}
 						</p>
 					</div>
-					<div className="space-y-2 p-3">
+					{plan ? (
+						<PlanBottlenecksPanel
+							sections={bottlenecks}
+							selectedNodeId={selected?.id}
+							onSelect={selectBottleneck}
+						/>
+					) : (
+						<div className="flex items-start gap-2 px-4 py-5 text-xs text-ink-4">
+							<Info size={15} className="mt-0.5 shrink-0" />
+							<p>Load a plan to rank the highest-impact nodes to inspect.</p>
+						</div>
+					)}
+					<div className="space-y-2 border-t border-rule p-3">
+						<div className="px-1">
+							<h2 className="font-display text-sm font-semibold">
+								Plan Health
+							</h2>
+							<p className="mt-0.5 text-xs text-ink-4">
+								{findings.length
+									? `${findings.length} evidence-based finding${findings.length === 1 ? "" : "s"}`
+									: "No high-confidence issues found"}
+							</p>
+						</div>
 						{findings.map((item, index) => (
 							<button
 								type="button"
