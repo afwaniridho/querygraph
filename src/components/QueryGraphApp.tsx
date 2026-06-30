@@ -763,8 +763,8 @@ function GraphStage({
 	return (
 		<NodeActionsContext.Provider value={nodeActions}>
 			<div className="flex h-dvh w-full flex-col bg-paper">
-				<header className="flex shrink-0 items-center gap-3 border-b border-rule px-4 py-2.5">
-					<div className="flex shrink-0 items-center gap-2.5">
+				<header className="flex shrink-0 items-center gap-2 border-b border-rule px-3 py-2.5 md:gap-3 md:px-4">
+					<div className="flex shrink-0 items-center gap-2 md:gap-2.5">
 						<img
 							src="/logo192.png"
 							alt=""
@@ -772,7 +772,7 @@ function GraphStage({
 							width={36}
 							height={36}
 						/>
-						<h1 className="font-display text-[1.3rem] font-semibold leading-none tracking-[-0.035em] text-ink">
+						<h1 className="hidden font-display text-[1.3rem] font-semibold leading-none tracking-[-0.035em] text-ink sm:block">
 							QueryGraph
 						</h1>
 						<p className="hidden text-xs text-ink-4 xl:block">
@@ -785,36 +785,40 @@ function GraphStage({
 							<RouterLink
 								to="/"
 								aria-current="page"
-								className="rounded bg-paper px-2.5 py-1.5 font-mono text-[0.65rem] text-accent shadow-sm"
+								className="rounded bg-paper px-2.5 py-3 font-mono text-[0.65rem] text-accent shadow-sm md:py-1.5"
 							>
 								Query Logic
 							</RouterLink>
 							<RouterLink
 								to="/explain"
-								className="rounded px-2.5 py-1.5 font-mono text-[0.65rem] text-ink-3 hover:text-ink"
+								className="rounded px-2.5 py-3 font-mono text-[0.65rem] text-ink-3 hover:text-ink md:py-1.5"
 							>
 								Execution Plan
 							</RouterLink>
 						</nav>
 					</div>
-					<div className="ml-auto flex items-center gap-1">
+					<div className="ml-auto flex items-center gap-0.5 md:gap-1">
 						<button
 							type="button"
 							onClick={() => setExamplesOpen(true)}
 							data-testid="open-examples"
-							className="flex h-9 items-center gap-1.5 rounded px-3 font-mono text-[0.75rem] text-ink-2 transition hover:bg-paper-2 hover:text-ink"
+							title="Examples"
+							aria-label="Examples"
+							className="flex h-10 items-center gap-1.5 rounded px-2 font-mono text-[0.75rem] text-ink-2 transition hover:bg-paper-2 hover:text-ink md:h-9 md:px-3"
 						>
 							<BookOpen size={15} />
-							Examples
+							<span className="hidden sm:inline">Examples</span>
 						</button>
 						<button
 							type="button"
 							onClick={handleShare}
 							aria-haspopup="dialog"
-							className="flex h-9 items-center gap-1.5 rounded px-3 font-mono text-[0.75rem] text-ink-2 transition hover:bg-paper-2 hover:text-ink"
+							title="Share"
+							aria-label="Share"
+							className="flex h-10 items-center gap-1.5 rounded px-2 font-mono text-[0.75rem] text-ink-2 transition hover:bg-paper-2 hover:text-ink md:h-9 md:px-3"
 						>
 							<Link size={15} />
-							Share
+							<span className="hidden sm:inline">Share</span>
 						</button>
 						<button
 							type="button"
@@ -822,10 +826,12 @@ function GraphStage({
 								setAboutClosing(false);
 								setAboutOpen(true);
 							}}
-							className="flex h-9 items-center gap-1.5 rounded px-3 font-mono text-[0.75rem] text-ink-2 transition hover:bg-paper-2 hover:text-ink"
+							title="About"
+							aria-label="About"
+							className="flex h-10 items-center gap-1.5 rounded px-2 font-mono text-[0.75rem] text-ink-2 transition hover:bg-paper-2 hover:text-ink md:h-9 md:px-3"
 						>
 							<CircleHelp size={15} />
-							About
+							<span className="hidden sm:inline">About</span>
 						</button>
 					</div>
 				</header>
@@ -849,7 +855,7 @@ function GraphStage({
 						data-active={mobilePane === "editor"}
 						className="flex w-full min-w-0 flex-col border-r border-rule data-[active=false]:hidden md:flex md:w-[38%] md:max-w-[34rem] md:data-[active=false]:flex"
 					>
-						<div className="flex items-center justify-between border-b border-rule px-4 py-2">
+						<div className="flex items-center justify-between gap-2 border-b border-rule px-3 py-2 md:px-4">
 							<div className="flex items-center gap-0.5 rounded-sm border border-rule bg-paper-2 p-0.5">
 								{DIALECTS.map((d) => (
 									<button
