@@ -117,7 +117,7 @@ export function rankPlanBottlenecks(
 ): PlanBottleneckSection[] {
 	const sections: Array<PlanBottleneckSection | null> = [];
 
-	if (plan.database === "postgresql" && plan.analyzed) {
+	if (plan.analyzed) {
 		sections.push(
 			section(
 				"actual-time",
@@ -164,38 +164,42 @@ export function rankPlanBottlenecks(
 					);
 				}),
 			),
-			section(
-				"rows-removed",
-				"Largest rows removed",
-				"Rows removed by filter or join filter.",
-				plan.nodes.map((node) => {
-					const filterRows = node.rowsRemovedByFilter ?? 0;
-					const joinRows = node.rowsRemovedByJoinFilter ?? 0;
-					return item(
-						node,
-						filterRows + joinRows,
-						" rows",
-						"rows-removed",
-						`${formatNumber(filterRows)} by filter · ${formatNumber(joinRows)} by join filter.`,
-					);
-				}),
-			),
-			section(
-				"temp-io",
-				"Largest temp I/O, disk sort, or hash batching",
-				"Temporary blocks, disk-backed sorts, and multi-batch hash operations.",
-				plan.nodes.map((node) => {
-					const temp = tempIoScore(node);
-					return item(
-						node,
-						temp?.score ?? 0,
-						"",
-						"temp-io",
-						temp?.evidence ?? "",
-					);
-				}),
-			),
 		);
+		if (plan.database === "postgresql") {
+			sections.push(
+				section(
+					"rows-removed",
+					"Largest rows removed",
+					"Rows removed by filter or join filter.",
+					plan.nodes.map((node) => {
+						const filterRows = node.rowsRemovedByFilter ?? 0;
+						const joinRows = node.rowsRemovedByJoinFilter ?? 0;
+						return item(
+							node,
+							filterRows + joinRows,
+							" rows",
+							"rows-removed",
+							`${formatNumber(filterRows)} by filter · ${formatNumber(joinRows)} by join filter.`,
+						);
+					}),
+				),
+				section(
+					"temp-io",
+					"Largest temp I/O, disk sort, or hash batching",
+					"Temporary blocks, disk-backed sorts, and multi-batch hash operations.",
+					plan.nodes.map((node) => {
+						const temp = tempIoScore(node);
+						return item(
+							node,
+							temp?.score ?? 0,
+							"",
+							"temp-io",
+							temp?.evidence ?? "",
+						);
+					}),
+				),
+			);
+		}
 	} else {
 		sections.push(
 			section(

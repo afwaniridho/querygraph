@@ -246,7 +246,7 @@ export function PlanDetailsDrawer({
 						</dl>
 					</section>
 				)}
-				{node.database !== "mysql" && node.actualRows !== undefined ? (
+				{node.actualRows !== undefined ? (
 					<section>
 						<h3 className="font-mono text-[0.65rem] tracking-widest text-ink-3 uppercase">
 							Runtime
@@ -271,13 +271,13 @@ export function PlanDetailsDrawer({
 							/>
 						</dl>
 						<p className="mt-2 text-[0.68rem] leading-relaxed text-ink-4">
-							PostgreSQL actual row and time values can be per-loop averages.
-							Parent times are inclusive and must not be summed with child
-							times.
+							{node.database === "mysql"
+								? "MySQL TREE reports actual time per loop. Loop-aware time is derived as time per loop times loops. Parent times are inclusive and must not be summed with child times."
+								: "PostgreSQL actual row and time values can be per-loop averages. Parent times are inclusive and must not be summed with child times."}
 						</p>
 					</section>
 				) : null}
-				{node.database !== "mysql" && ratio !== undefined ? (
+				{ratio !== undefined ? (
 					<section>
 						<h3 className="font-mono text-[0.65rem] tracking-widest text-ink-3 uppercase">
 							Estimate quality

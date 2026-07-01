@@ -531,6 +531,23 @@ export const MYSQL_PLAN_EXAMPLES: PlanExample[] = [
 			},
 		}),
 	},
+	{
+		id: "mysql-tree-analyzed-nested-loop",
+		database: "mysql",
+		title: "EXPLAIN ANALYZE nested loop (TREE)",
+		objective:
+			"See real MySQL runtime time, rows, and loops from EXPLAIN ANALYZE TREE output.",
+		notice:
+			"Actual time is per loop; loop-aware time is derived and not summed into parent inclusive time.",
+		expectedFindingIds: [
+			"mysql-cardinality-mismatch",
+			"mysql-repeated-inner-operation",
+		],
+		analyzed: true,
+		json: `-> Nested loop inner join  (cost=120.40 rows=50) (actual time=0.08..420.0 rows=50 loops=1)
+    -> Table scan on customers  (cost=12.10 rows=200) (actual time=0.02..1.20 rows=200 loops=1)
+    -> Index lookup on orders using orders_customer_id_idx (orders.customer_id=customers.id)  (cost=0.40 rows=2) (actual time=0.05..2.00 rows=900 loops=200)`,
+	},
 ];
 
 export const ALL_PLAN_EXAMPLES = [...PLAN_EXAMPLES, ...MYSQL_PLAN_EXAMPLES];

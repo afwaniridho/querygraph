@@ -10,6 +10,10 @@ import {
 	totalActualTime,
 } from "../explain/metrics";
 import { parseMysqlPlan } from "../explain/mysql-parser";
+import {
+	isMysqlTreeOutput,
+	parseMysqlTreePlan,
+} from "../explain/mysql-tree-parser";
 import { parsePostgresPlan } from "../explain/parser";
 import { PlanParseError } from "../explain/types";
 
@@ -126,11 +130,22 @@ describe("MySQL EXPLAIN FORMAT=JSON parser", () => {
 		).toHaveLength(2);
 	});
 
+	it("accepts copied MySQL TREE result wrappers", () => {
+		const tree =
+			"-> Table scan on t1  (cost=1.10 rows=4) (actual time=0.02..0.05 rows=4 loops=1)";
+		expect(parseMysqlPlan(JSON.stringify([{ EXPLAIN: tree }])).raw.format).toBe(
+			"tree",
+		);
+		expect(parseMysqlPlan(JSON.stringify({ EXPLAIN: tree })).raw.format).toBe(
+			"tree",
+		);
+		expect(parseMysqlPlan(JSON.stringify(tree)).raw.format).toBe("tree");
+	});
+
 	it.each([
 		["", "empty"],
 		["{", "invalid-json"],
 		["EXPLAIN SELECT 1", "invalid-json"],
-		[JSON.stringify("-> Table scan on t"), "invalid-structure"],
 		[JSON.stringify([{ Plan: { "Node Type": "Seq Scan" } }]), "missing-plan"],
 		[JSON.stringify({ Plan: { "Node Type": "Seq Scan" } }), "missing-plan"],
 	])("rejects non-MySQL JSON %#", (input, code) => {
@@ -165,6 +180,195 @@ describe("MySQL EXPLAIN FORMAT=JSON parser", () => {
 				maxDepth: 1,
 			}),
 		).toThrow(/maximum depth/);
+	});
+});
+
+describe("isMysqlTreeOutput detector", () => {
+	it.each([
+		[JSON.stringify({ query_block: {} }), false],
+		[JSON.stringify([{ EXPLAIN: "{}" }]), false],
+		["-> Table scan on t1  (cost=1.10 rows=4)", true],
+		[
+			"-> Nested loop  (cost=2.40 rows=2) (actual time=0.05..0.08 rows=2 loops=1)",
+			true,
+		],
+		["EXPLAIN: -> Filter: (t1.id > 10)  (cost=1.25 rows=3)", true],
+		["SELECT * FROM users WHERE id = 1", false],
+		["id\tselect_type\ttable\ntype\n1\tSIMPLE\tusers\tALL", false],
+		["", false],
+	])("classifies input %#", (input, expected) => {
+		expect(isMysqlTreeOutput(input)).toBe(expected);
+	});
+});
+
+describe("MySQL EXPLAIN ANALYZE TREE parser", () => {
+	it("parses a simple analyzed TREE node with runtime fields", () => {
+		const parsed = parseMysqlTreePlan(
+			"-> Table scan on t1  (cost=1.10 rows=4) (actual time=0.02..0.05 rows=4 loops=1)",
+		);
+		expect(parsed.database).toBe("mysql");
+		expect(parsed.analyzed).toBe(true);
+		expect(parsed.nodes).toHaveLength(1);
+		const root = parsed.nodes[0];
+		expect(root.id).toBe("plan-0");
+		expect(root.nodeType).toBe("Table scan on t1");
+		expect(root.tableName).toBe("t1");
+		expect(root.startupCost).toBeUndefined();
+		expect(root.totalCost).toBe(1.1);
+		expect(root.planRows).toBe(4);
+		expect(root.actualStartupTime).toBe(0.02);
+		expect(root.actualTotalTime).toBe(0.05);
+		expect(root.actualRows).toBe(4);
+		expect(root.actualLoops).toBe(1);
+	});
+
+	it("parses nested hierarchy with correct ids, depths, and siblings", () => {
+		const parsed = parseMysqlTreePlan(
+			`-> Nested loop inner join  (cost=2.40 rows=2) (actual time=0.05..0.08 rows=2 loops=1)
+    -> Table scan on t1  (cost=1.10 rows=4) (actual time=0.02..0.03 rows=4 loops=1)
+    -> Index lookup on t2 using idx (t2.a=t1.id)  (cost=0.30 rows=1) (actual time=0.01..0.01 rows=1 loops=4)`,
+		);
+		expect(parsed.nodes.map((item) => item.id)).toEqual([
+			"plan-0",
+			"plan-0-0",
+			"plan-0-1",
+		]);
+		expect(parsed.nodes.map((item) => item.depth)).toEqual([0, 1, 1]);
+		expect(parsed.nodeById["plan-0"].childIds).toEqual([
+			"plan-0-0",
+			"plan-0-1",
+		]);
+		const lookup = parsed.nodeById["plan-0-1"];
+		expect(lookup.parentId).toBe("plan-0");
+		expect(lookup.tableName).toBe("t2");
+		expect(lookup.key).toBe("idx");
+		expect(lookup.actualLoops).toBe(4);
+		expect(parsed.maxDepth).toBe(1);
+	});
+
+	it("parses cost-only TREE as not analyzed", () => {
+		const parsed = parseMysqlTreePlan(
+			`-> Sort: t1.created_at  (cost=12.30 rows=100)
+    -> Table scan on t1  (cost=10.00 rows=100)`,
+		);
+		expect(parsed.analyzed).toBe(false);
+		expect(parsed.nodes).toHaveLength(2);
+		expect(parsed.nodes[0].totalCost).toBe(12.3);
+		expect(parsed.nodes[0].actualRows).toBeUndefined();
+	});
+
+	it("supports cost ranges and the EXPLAIN: prefix", () => {
+		const parsed = parseMysqlTreePlan(
+			`EXPLAIN: -> Filter: (t1.id > 10)  (cost=1.00..1.25 rows=3) (actual time=0.030..0.050 rows=2 loops=1)
+    -> Table scan on t1  (cost=1.25 rows=10) (actual time=0.010..0.020 rows=10 loops=1)`,
+		);
+		expect(parsed.nodes[0].nodeType).toBe("Filter: (t1.id > 10)");
+		expect(parsed.nodes[0].startupCost).toBe(1);
+		expect(parsed.nodes[0].totalCost).toBe(1.25);
+		expect(parsed.nodes).toHaveLength(2);
+	});
+
+	it("preserves costless internal nodes such as Hash", () => {
+		const parsed = parseMysqlTreePlan(
+			`-> Hash
+    -> Table scan on t2  (cost=1.00 rows=100)`,
+		);
+		expect(parsed.nodes[0].nodeType).toBe("Hash");
+		expect(parsed.nodes[0].totalCost).toBeUndefined();
+		expect(parsed.nodes[0].childIds).toEqual(["plan-0-0"]);
+	});
+
+	it("parses scientific and engineering notation values", () => {
+		const parsed = parseMysqlTreePlan(
+			"-> Table scan on big  (cost=1.5e3 rows=2.0e6) (actual time=0.05..1.2e2 rows=1e6 loops=1)",
+		);
+		const root = parsed.nodes[0];
+		expect(root.totalCost).toBe(1500);
+		expect(root.planRows).toBe(2_000_000);
+		expect(root.actualTotalTime).toBe(120);
+		expect(root.actualRows).toBe(1_000_000);
+	});
+
+	it("treats lines without arrows as continuation of the previous node", () => {
+		const parsed = parseMysqlTreePlan(
+			`-> Filter: (t1.col = 'a really long predicate that wraps'
+       and t1.other = 5)  (cost=1.25 rows=3) (actual time=0.03..0.05 rows=2 loops=1)
+    -> Table scan on t1  (cost=1.25 rows=10) (actual time=0.01..0.02 rows=10 loops=1)`,
+		);
+		expect(parsed.nodes).toHaveLength(2);
+		expect(parsed.nodes[0].planRows).toBe(3);
+		expect(parsed.nodes[0].actualRows).toBe(2);
+		expect(parsed.nodes[0].raw.continuations).toEqual([
+			"and t1.other = 5)  (cost=1.25 rows=3) (actual time=0.03..0.05 rows=2 loops=1)",
+		]);
+	});
+
+	it("handles tab indentation consistently", () => {
+		const parsed = parseMysqlTreePlan(
+			"-> Nested loop  (cost=2.40 rows=2) (actual time=0.05..0.08 rows=2 loops=1)\n\t-> Table scan on t1  (cost=1.10 rows=4) (actual time=0.02..0.03 rows=4 loops=1)",
+		);
+		expect(parsed.nodes.map((item) => item.id)).toEqual(["plan-0", "plan-0-0"]);
+		expect(parsed.nodes[1].depth).toBe(1);
+	});
+
+	it("marks never-executed nodes as not having runtime rows", () => {
+		const parsed = parseMysqlTreePlan(
+			`-> Nested loop  (cost=2.40 rows=2) (actual time=0.05..0.08 rows=2 loops=1)
+    -> Index lookup on t2 using idx  (cost=0.30 rows=1) (never executed)`,
+		);
+		expect(parsed.nodes[1].actualRows).toBeUndefined();
+		expect(parsed.analyzed).toBe(true);
+	});
+
+	it("rejects empty and node-free TREE input", () => {
+		expect(() => parseMysqlTreePlan("")).toThrow(PlanParseError);
+		try {
+			parseMysqlTreePlan("");
+		} catch (error) {
+			expect((error as PlanParseError).code).toBe("empty");
+		}
+	});
+
+	it("rejects multi-root TREE input", () => {
+		expect(() =>
+			parseMysqlTreePlan(
+				`-> Table scan on t1  (cost=1.10 rows=4)
+-> Table scan on t2  (cost=1.10 rows=4)`,
+			),
+		).toThrow(/multiple root/);
+	});
+
+	it("enforces input, depth, and node limits", () => {
+		expect(() =>
+			parseMysqlTreePlan("-> Table scan on t1  (cost=1.10 rows=4)", {
+				maxInputBytes: 5,
+				maxNodes: 10,
+				maxDepth: 10,
+			}),
+		).toThrow(/input limit/);
+		expect(() =>
+			parseMysqlTreePlan(
+				`-> Nested loop  (cost=2.40 rows=2)
+    -> Table scan on t1  (cost=1.10 rows=4)`,
+				{ maxInputBytes: 10_000, maxNodes: 1, maxDepth: 10 },
+			),
+		).toThrow(/node limit/);
+		expect(() =>
+			parseMysqlTreePlan(
+				`-> Nested loop  (cost=2.40 rows=2)
+    -> Table scan on t1  (cost=1.10 rows=4)`,
+				{ maxInputBytes: 10_000, maxNodes: 10, maxDepth: 0 },
+			),
+		).toThrow(/maximum depth/);
+	});
+
+	it("dispatches raw TREE text through parseMysqlPlan", () => {
+		const parsed = parseMysqlPlan(
+			"-> Table scan on t1  (cost=1.10 rows=4) (actual time=0.02..0.05 rows=4 loops=1)",
+		);
+		expect(parsed.database).toBe("mysql");
+		expect(parsed.analyzed).toBe(true);
+		expect(parsed.raw.format).toBe("tree");
 	});
 });
 
@@ -632,5 +836,62 @@ describe("Plan Health", () => {
 				expect(ids, example.id).toContain(expected);
 			}
 		}
+	});
+});
+
+describe("MySQL analyzed TREE analysis", () => {
+	const analyzedTree = `-> Nested loop inner join  (cost=2.40 rows=2) (actual time=0.05..50.0 rows=2 loops=1)
+    -> Table scan on t1  (cost=1.10 rows=4) (actual time=0.02..0.03 rows=4 loops=1)
+    -> Index lookup on t2 using idx  (cost=0.30 rows=5) (actual time=0.10..5.0 rows=1000 loops=200)`;
+
+	it("produces actual-time bottleneck sections for analyzed MySQL TREE", () => {
+		const plan = parseMysqlPlan(analyzedTree);
+		expect(plan.analyzed).toBe(true);
+		const ranked = rankPlanBottlenecks(plan);
+		const kinds = ranked.map((section) => section.kind);
+		expect(kinds).toContain("actual-time");
+		expect(kinds).toContain("loop-aware-time");
+		expect(kinds).not.toContain("temp-io");
+		expect(kinds).not.toContain("rows-removed");
+		const actualTime = ranked.find((s) => s.kind === "actual-time");
+		expect(actualTime?.items[0]).toMatchObject({ nodeId: "plan-0", value: 50 });
+		const loopAware = ranked.find((s) => s.kind === "loop-aware-time");
+		expect(loopAware?.items[0]).toMatchObject({
+			nodeId: "plan-0-1",
+			value: 1000,
+		});
+	});
+
+	it("produces cardinality mismatch when estimate and actual differ", () => {
+		const plan = parseMysqlPlan(analyzedTree);
+		const ranked = rankPlanBottlenecks(plan);
+		const mismatch = ranked.find((s) => s.kind === "cardinality-mismatch");
+		expect(mismatch?.items[0]).toMatchObject({ nodeId: "plan-0-1" });
+		expect(mismatch?.items[0].value).toBeGreaterThanOrEqual(100);
+	});
+
+	it("flags runtime cardinality mismatch and repeated inner operation", () => {
+		const ids = analyzePlan(parseMysqlPlan(analyzedTree)).map(
+			(item) => item.ruleId,
+		);
+		expect(ids).toContain("mysql-cardinality-mismatch");
+		expect(ids).toContain("mysql-repeated-inner-operation");
+	});
+
+	it("keeps estimated MySQL JSON on estimated bottleneck sections", () => {
+		const plan = parseMysqlPlan(MYSQL_PLAN_EXAMPLES[1].json);
+		expect(plan.analyzed).toBe(false);
+		const kinds = rankPlanBottlenecks(plan).map((section) => section.kind);
+		expect(kinds).toContain("estimated-cost");
+		expect(kinds).toContain("estimated-rows");
+		expect(kinds).not.toContain("actual-time");
+	});
+
+	it("does not flag runtime findings on estimated MySQL JSON", () => {
+		const ids = analyzePlan(parseMysqlPlan(MYSQL_PLAN_EXAMPLES[1].json)).map(
+			(item) => item.ruleId,
+		);
+		expect(ids).not.toContain("mysql-cardinality-mismatch");
+		expect(ids).not.toContain("mysql-repeated-inner-operation");
 	});
 });

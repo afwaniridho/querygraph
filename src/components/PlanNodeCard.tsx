@@ -66,7 +66,7 @@ function PlanNodeCardComponent({ data }: NodeProps) {
 			</div>
 			<div className="space-y-1 px-3 py-2.5">
 				{label ? <p className="truncate text-xs text-ink-3">{label}</p> : null}
-				{node.database === "mysql" ? (
+				{node.database === "mysql" && node.actualRows === undefined ? (
 					<>
 						<p className="font-mono text-[0.68rem] text-ink-2">
 							Estimated rows:{" "}
