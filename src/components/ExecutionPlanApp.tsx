@@ -406,7 +406,7 @@ function App() {
 					<div className="flex items-center justify-between gap-3 border-b border-rule px-3 py-2 sm:px-4">
 						<div className="min-w-0">
 							<p className="font-mono text-[.62rem] tracking-widest text-ink-3 uppercase">
-								{database === "mysql" ? "MySQL JSON" : "PostgreSQL JSON"}
+								{database === "mysql" ? "MySQL EXPLAIN" : "PostgreSQL JSON"}
 							</p>
 							<p className="mt-0.5 text-[.68rem] text-ink-4">
 								No upload or database connection
@@ -488,7 +488,9 @@ function App() {
 							{plan.database === "mysql" ? "MySQL" : "PostgreSQL"} ·{" "}
 							{plan.analyzed
 								? plan.database === "mysql"
-									? "Runtime JSON"
+									? plan.raw.format === "tree"
+										? "EXPLAIN ANALYZE TREE"
+										: "Runtime JSON"
 									: "EXPLAIN ANALYZE"
 								: "Estimated plan"}{" "}
 							· {plan.nodes.length} nodes
@@ -497,16 +499,14 @@ function App() {
 					) : null}
 					<textarea
 						aria-label={
-							database === "mysql"
-								? "MySQL EXPLAIN JSON"
-								: "PostgreSQL EXPLAIN JSON"
+							database === "mysql" ? "MySQL EXPLAIN" : "PostgreSQL EXPLAIN JSON"
 						}
 						value={input}
 						onChange={(event) => setInput(event.target.value)}
 						disabled={!hydrated}
 						placeholder={
 							database === "mysql"
-								? 'Paste EXPLAIN FORMAT=JSON output here...\n\n{\n  "query_block": { "table": { "table_name": "orders" } }\n}'
+								? "Paste EXPLAIN FORMAT=JSON output or EXPLAIN ANALYZE TREE output here...\n\n-> Table scan on orders  (cost=1.10 rows=4) (actual time=0.02..0.05 rows=4 loops=1)"
 								: 'Paste EXPLAIN (FORMAT JSON) output here...\n\n[\n  { "Plan": { "Node Type": "Seq Scan", ... } }\n]'
 						}
 						spellCheck={false}
@@ -680,14 +680,24 @@ function App() {
 										/>
 									) : (
 										<Command
-											title="Runtime note"
-											description="MySQL EXPLAIN ANALYZE executes the statement and is commonly TREE output in MySQL 8.0/8.4. Paste JSON only if your MySQL version emits JSON analyze output."
-											value="EXPLAIN ANALYZE output is version-dependent; QueryGraph accepts JSON only."
-											copied={copied === "mysql-runtime-note"}
+											title="Actual runtime (TREE)"
+											description={
+												currentSqlMayWrite
+													? "Warning: the current SQL is not a SELECT. ANALYZE will execute it and may modify data."
+													: "Executes the statement and records observed time, rows, and loops as TREE output. Paste the TREE result here."
+											}
+											value={
+												currentSql
+													? `EXPLAIN ANALYZE\n${currentSql.trim()}`
+													: "EXPLAIN ANALYZE\nSELECT ...;"
+											}
+											copied={copied === "analyzed"}
 											onCopy={() =>
 												copyWithStatus(
-													"mysql-runtime-note",
-													"MySQL EXPLAIN ANALYZE executes the statement and is commonly TREE output in MySQL 8.0/8.4. Paste JSON only if your MySQL version emits JSON analyze output.",
+													"analyzed",
+													currentSql
+														? `EXPLAIN ANALYZE\n${currentSql.trim()}`
+														: "EXPLAIN ANALYZE\nSELECT ...;",
 												)
 											}
 										/>
@@ -733,7 +743,7 @@ function App() {
 								<p className="mt-6 text-xs leading-relaxed text-ink-4">
 									Supported:{" "}
 									{database === "mysql"
-										? "MySQL EXPLAIN FORMAT=JSON, including JSON copied from common SQL clients, nested_loop, operation wrappers, materialized subqueries, and access-path fields. Not supported: tabular EXPLAIN, TREE text, optimizer trace, or SQL-only input."
+										? "MySQL EXPLAIN FORMAT=JSON and EXPLAIN ANALYZE TREE output, including JSON copied from common SQL clients, nested_loop, operation wrappers, materialized subqueries, and access-path fields. Not supported: tabular EXPLAIN, optimizer trace, or SQL-only input."
 										: "PostgreSQL EXPLAIN JSON, including JSON copied from common SQL clients, ANALYZE, BUFFERS, workers, JIT, and triggers. Not supported: text, YAML, XML, MySQL EXPLAIN, or SQL-only input."}{" "}
 									Limits: {PLAN_LIMITS.maxInputBytes / 1_000_000} MB,{" "}
 									{PLAN_LIMITS.maxNodes} nodes, depth {PLAN_LIMITS.maxDepth}.

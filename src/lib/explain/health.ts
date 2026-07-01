@@ -285,6 +285,75 @@ function analyzeMysqlPlan(plan: ExecutionPlan): PlanFinding[] {
 		.map((node) => node.queryCost)
 		.find((value): value is number => value !== undefined && value > 0);
 	for (const node of plan.nodes) {
+		if (node.actualRows !== undefined) {
+			const ratio = estimateRatio(node);
+			if (
+				ratio !== undefined &&
+				ratio >= 10 &&
+				Math.max(node.actualRows, node.planRows ?? 0) >= 100
+			) {
+				const underestimate = node.actualRows > (node.planRows ?? 0);
+				results.push(
+					finding(node, {
+						ruleId: "mysql-cardinality-mismatch",
+						severity: ratio >= 100 ? "danger" : "warning",
+						title: `Cardinality ${underestimate ? "underestimate" : "overestimate"}`,
+						evidence: `${formatNumber(node.planRows ?? 0)} estimated vs ${formatNumber(node.actualRows)} actual rows per loop (${formatNumber(ratio)}× difference).`,
+						explanation:
+							"EXPLAIN ANALYZE shows a material row-estimate mismatch. Estimates drive join order and access-path choices; looped values are compared per loop.",
+						suggestions: [
+							"Check table statistics freshness and data skew.",
+							"Review predicate selectivity and correlated columns.",
+						],
+						requiresActual: true,
+						confidence: "high",
+					}),
+				);
+			}
+			const repeatedTime = totalActualTime(node);
+			if (
+				(node.actualLoops ?? 0) >= 100 &&
+				(repeatedTime ?? 0) >= 100 &&
+				node.parentId
+			) {
+				results.push(
+					finding(node, {
+						ruleId: "mysql-repeated-inner-operation",
+						severity: (repeatedTime ?? 0) >= 1_000 ? "danger" : "warning",
+						title: "Expensive repeated operation",
+						evidence: `${formatNumber(node.actualLoops ?? 0)} loops at ${formatNumber(node.actualTotalTime ?? 0)} ms inclusive time per loop (${formatNumber(repeatedTime ?? 0)} ms loop-aware).`,
+						explanation:
+							"This inner operation repeats substantial work. The loop-aware figure is derived per loop and is not added to parent inclusive time.",
+						suggestions: [
+							"Inspect the parent join and why this input is rescanned.",
+							"Check whether a more selective access path or different join strategy is feasible.",
+						],
+						requiresActual: true,
+						confidence: "medium",
+					}),
+				);
+			}
+			const loopAwareRows = totalActualRows(node) ?? 0;
+			const isScanLike = /scan|lookup|table/i.test(node.nodeType);
+			if (isScanLike && loopAwareRows >= 100_000) {
+				results.push(
+					finding(node, {
+						ruleId: "mysql-high-actual-rows",
+						severity: loopAwareRows >= 1_000_000 ? "warning" : "info",
+						title: "High actual scan workload",
+						evidence: `${formatNumber(loopAwareRows)} actual loop-aware rows from ${node.nodeType}.`,
+						explanation:
+							"This access processed a large number of rows at runtime. That can be optimal when much of the data is needed, but it is worth reviewing for frequent queries.",
+						suggestions: [
+							"Compare rows returned with table size and query frequency.",
+							"Check whether a selective access path can reduce scanned rows.",
+						],
+						requiresActual: true,
+						confidence: "medium",
+					}),
+				);
+			}
+		}
 		const work = estimatedWork(node);
 		const largeWork = isLargeMysqlWork(node);
 		if (node.accessType === "ALL" && largeWork) {

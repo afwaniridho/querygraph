@@ -61,7 +61,7 @@ test.describe("PostgreSQL EXPLAIN visualizer", () => {
 	}) => {
 		await page.goto("/explain");
 		await page.getByRole("button", { name: "MySQL" }).click();
-		await expect(page.getByLabel("MySQL EXPLAIN JSON")).toBeVisible();
+		await expect(page.getByLabel("MySQL EXPLAIN")).toBeVisible();
 		await expect(page.getByText("EXPLAIN FORMAT=JSON\nSELECT ...;")).toBeVisible();
 		await expect(page.getByText("EXPLAIN (ANALYZE")).toHaveCount(0);
 		await expect(page.getByTestId("plan-example-mysql-filesort")).toBeVisible();
@@ -87,12 +87,31 @@ test.describe("PostgreSQL EXPLAIN visualizer", () => {
 		await expect(page.locator(".react-flow__node.selected")).toHaveCount(1);
 	});
 
+	test("renders MySQL EXPLAIN ANALYZE TREE runtime plans", async ({ page }) => {
+		await page.goto("/explain");
+		await page.getByRole("button", { name: "MySQL" }).click();
+		await page.getByLabel("MySQL EXPLAIN").fill(
+			`-> Nested loop inner join  (cost=2.40 rows=2) (actual time=0.05..0.08 rows=2 loops=1)
+    -> Table scan on t1  (cost=1.10 rows=4) (actual time=0.02..0.03 rows=4 loops=1)
+    -> Index lookup on t2 using idx  (cost=0.30 rows=1) (actual time=0.01..0.01 rows=1 loops=4)`,
+		);
+		await expect(page.getByTestId("plan-status")).toContainText(
+			"EXPLAIN ANALYZE TREE",
+		);
+		await expect(page.locator(".qg-plan-node")).toHaveCount(3);
+		await page.getByTestId("plan-node-plan-0-0").click();
+		await expect(page.getByTestId("plan-details")).toContainText("Runtime");
+		await expect(page.getByTestId("plan-details")).toContainText(
+			"Rows per loop",
+		);
+	});
+
 	test("shows friendly MySQL invalid-input feedback and switches back to PostgreSQL", async ({
 		page,
 	}) => {
 		await page.goto("/explain");
 		await page.getByRole("button", { name: "MySQL" }).click();
-		await page.getByLabel("MySQL EXPLAIN JSON").fill("EXPLAIN SELECT 1");
+		await page.getByLabel("MySQL EXPLAIN").fill("EXPLAIN SELECT 1");
 		await expect(page.getByTestId("plan-error")).toContainText(
 			"This does not appear to be MySQL EXPLAIN FORMAT=JSON output.",
 		);

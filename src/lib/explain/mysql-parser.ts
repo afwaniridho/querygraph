@@ -1,3 +1,4 @@
+import { isMysqlTreeOutput, parseMysqlTreePlan } from "./mysql-tree-parser";
 import { normalizeMysqlExplainInput } from "./normalize-input";
 import { PLAN_LIMITS } from "./parser";
 import {
@@ -40,6 +41,34 @@ type Frame = ChildCandidate & {
 	depth: number;
 	path: number[];
 };
+
+function findTreeExplainText(input: string): string | undefined {
+	try {
+		const parsed = JSON.parse(input) as unknown;
+		if (typeof parsed === "string" && isMysqlTreeOutput(parsed)) {
+			return parsed;
+		}
+		if (
+			Array.isArray(parsed) &&
+			parsed.length === 1 &&
+			object(parsed[0]) &&
+			typeof parsed[0].EXPLAIN === "string" &&
+			isMysqlTreeOutput(parsed[0].EXPLAIN)
+		) {
+			return parsed[0].EXPLAIN;
+		}
+		if (
+			object(parsed) &&
+			typeof parsed.EXPLAIN === "string" &&
+			isMysqlTreeOutput(parsed.EXPLAIN)
+		) {
+			return parsed.EXPLAIN;
+		}
+	} catch {
+		return undefined;
+	}
+	return undefined;
+}
 
 function findQueryBlock(value: unknown): Record<string, unknown> | undefined {
 	if (!object(value)) return undefined;
@@ -245,13 +274,20 @@ export function parseMysqlPlan(
 	limits: ParseLimits = PLAN_LIMITS,
 ): ExecutionPlan {
 	if (!input.trim()) {
-		throw new PlanParseError("empty", "Paste MySQL EXPLAIN JSON to begin.");
+		throw new PlanParseError("empty", "Paste MySQL EXPLAIN to begin.");
+	}
+	if (isMysqlTreeOutput(input)) {
+		return parseMysqlTreePlan(input, limits);
 	}
 	if (new TextEncoder().encode(input).byteLength > limits.maxInputBytes) {
 		throw new PlanParseError(
 			"too-large",
 			`This MySQL plan exceeds the ${Math.round(limits.maxInputBytes / 1_000_000)} MB input limit.`,
 		);
+	}
+	const treeText = findTreeExplainText(input);
+	if (treeText) {
+		return parseMysqlTreePlan(treeText, limits);
 	}
 	const parsed = normalizeMysqlExplainInput(input);
 	if (typeof parsed === "string") {

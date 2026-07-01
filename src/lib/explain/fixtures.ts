@@ -7,6 +7,28 @@ export interface ExplainFixture {
 	json: string;
 }
 
+const TREE_ANALYZED = `-> Nested loop inner join  (cost=2.40 rows=2) (actual time=0.05..0.08 rows=2 loops=1)
+    -> Table scan on t1  (cost=1.10 rows=4) (actual time=0.02..0.03 rows=4 loops=1)
+    -> Index lookup on t2 using idx (t2.a=t1.id)  (cost=0.30 rows=1) (actual time=0.01..0.01 rows=1 loops=4)`;
+
+const TREE_COST_ONLY = `-> Sort: t1.created_at  (cost=12.30 rows=100)
+    -> Table scan on t1  (cost=10.00 rows=100)`;
+
+export const MYSQL_TREE_FIXTURES: ExplainFixture[] = [
+	{
+		id: "mysql-tree-analyzed",
+		database: "mysql",
+		category: "tree-analyzed",
+		json: TREE_ANALYZED,
+	},
+	{
+		id: "mysql-tree-cost-only",
+		database: "mysql",
+		category: "tree-cost-only",
+		json: TREE_COST_ONLY,
+	},
+];
+
 const json = (value: unknown) => JSON.stringify(value, null, 2);
 const pg = (value: Record<string, unknown>) => json([value]);
 const mysql = (queryBlock: Record<string, unknown>) =>
@@ -290,4 +312,5 @@ export const MYSQL_EXPLAIN_FIXTURES: ExplainFixture[] = [
 export const EXPLAIN_FIXTURES = [
 	...POSTGRES_EXPLAIN_FIXTURES,
 	...MYSQL_EXPLAIN_FIXTURES,
+	...MYSQL_TREE_FIXTURES,
 ];
